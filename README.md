@@ -1,6 +1,6 @@
 # SKILLS.md
 
-Personal collection of Agent Skills, following the [Agent Skills specification](https://agentskills.io/specification).
+A collection of Agent Skills, following the [Agent Skills specification](https://agentskills.io/specification).
 
 ## Layout
 
