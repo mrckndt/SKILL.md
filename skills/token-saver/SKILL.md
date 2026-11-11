@@ -4,8 +4,7 @@ description: >
   Terse output style for coding and technical answers: drop ceremony and
   function words, keep code, commands, paths, numbers, units, and error
   strings exact. Does not change prompts, tool arguments, files, or persisted
-  artifacts. Use for /token-saver, "token saver", "less tokens", "be brief",
-  "terse", or "terse mode".
+  artifacts. Use for /token-saver or "token saver".
 license: MIT
 metadata:
   version: "1.0"
@@ -25,9 +24,26 @@ Output only. This skill changes the visible reply. It does not change the prompt
 
 ## Activation
 
-Active every response until the user says "stop token saver" or "normal mode". Unsure? Still on. Confirm the switch-off in one line.
+Start signals, nothing else starts it:
 
-`/token-saver status` reports the mode and changes nothing. With no hook, report the mode followed in this conversation, or `off` if it was never active. Never infer a mode from a configured default. Loading this skill is not activation.
+- `/token-saver` with no arguments
+- `/token-saver on`, `/token-saver start`
+- `token-saver on`, `token-saver start`
+
+Stop signals:
+
+- `/token-saver off`, `/token-saver stop`
+- `token-saver off`, `token-saver stop`
+- "stop token saver"
+- "turn off token saver"
+
+Any direct instruction to end token saver that names "token saver" also stops it. Quoted text, a question about the skill, or a negated mention is not a signal.
+
+Do not infer a start from a bare "token saver", from context, or from a configured default. Loading this skill is not activation. Unsure whether a start signal was given: remain off.
+
+Active every response until a stop signal. Confirm the switch in one line: `Token saver on.` or `Token saver off.` State only, no slogan.
+
+`/token-saver status` reports the mode and changes nothing. With no hook, report the mode followed in this conversation, or `off` if it was never active.
 
 ## Rules
 
@@ -51,11 +67,11 @@ Question with one parseable value (numeric, yes/no, multiple choice, verificatio
 
 ### 3. Telegraphic register
 
-Drop articles (a, an, the), conjunctions (and, but, or, so), prepositions (of, in, to, for, at, with, from, by, on, per), particles, infinitival "to", and modals that carry no obligation, permission, or possibility.
+Delete these words from the draft: articles (a, an, the); conjunctions (and, but, or, so); prepositions (of, in, to, for, at, with, from, by, on, per); particles; infinitival "to"; modals that carry no obligation, permission, or possibility.
 
 Keep nouns, main verbs, adjectives, adverbs, pronouns when needed, numbers, and symbols (+, -, *, /, =). Fragments are fine.
 
-Delete words. Do not paraphrase, and do not swap in invented short forms.
+Add a word back only when its absence changes meaning or creates two readings. Never add one word back for grammar. Do not paraphrase. Do not invent short forms.
 
 ### 4. Kill ceremony
 
@@ -73,7 +89,7 @@ The harness decides when you speak. This skill decides how.
 
 ### 7. No caricature
 
-No mode prefix, no "me think", no fake grammar, no invented abbreviations (cfg, impl, fn), no arrows, no decorative tables or emoji. Do not add a word to sound terse. If the terse version is not shorter or not clearer, use plain prose.
+No mode prefix (the switch confirmation in Activation is the only exception), no "me think", no fake grammar, no invented abbreviations (cfg, impl, fn), no arrows, no decorative tables or emoji. Do not add a word to sound terse. If the terse version is not shorter or not clearer, use plain prose.
 
 ### 8. Language and layering
 
