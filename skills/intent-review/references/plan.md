@@ -4,12 +4,13 @@ Check a plan, spec, issue, or prompt **before** implementation: is the intent cl
 
 ## Step 1: Locate the Plan and Establish Intent
 
-1. **Locate the plan**: Use, in order, a path or pasted text given after `plan`; the plan in this conversation; or the newest file in the host's plan folders (see Core Operating Rule 2), after confirming with the user that it is the right one. When none exists, ask for a path or pasted text. Read plan files read-only.
+1. **Locate the plan**: Use, in order, a path or pasted text given after `plan`; the plan in this conversation; or the newest file in the host's plan folders (see Core Operating Rule 2; confirm with the user before reading any plan outside the repository root, and confirm the selected host plan is the right one). When none exists, ask for a path or pasted text. Read plan files read-only.
 2. **Extract** from the plan and the user's messages:
    - **Goal List**: 2 to 8 numbered goals, each an imperative sentence describing an outcome.
    - **Focus area**: the decision or risk the user is least sure about.
    - **Out of scope**: adjacent behavior or files the plan intentionally leaves alone.
 3. **Ask only when needed**: When the goals are missing or ambiguous, ask **one** consolidated question (Ask tool) before judging the plan. Otherwise proceed and state the defaults you assumed.
+4. **Scope and Provisional Risk Tier**: Apply `SKILL.md` Step 2.2–2.3 to list the plan's named files, modules, and configs (plus existing `.intent-review/*-contract.md` files) and assign the Provisional Risk Tier.
 
 ## Step 2: Ground the Plan in the Codebase
 
@@ -63,7 +64,7 @@ Check the repository rather than trusting the plan text:
 Leave external plan files untouched so tool-specific plan formats stay valid.
 
 1. When `--save` was passed, save immediately. Otherwise ask (Ask tool) whether to save `.intent-review/<slug>-contract.md` for the implementation and the later `/intent-review review`, or keep the review in chat.
-2. Before the first save, add `.intent-review/` to `.git/info/exclude` if it is not already ignored, so the contract never shows up as a change under review.
+2. Before the first save, resolve the local exclude file via `git rev-parse --git-path info/exclude` (skip if not in a git repository) and add `.intent-review/` if it is not already ignored, so the contract never shows up as a change under review.
 3. Write:
 
 ```markdown
@@ -71,6 +72,7 @@ Leave external plan files untouched so tool-specific plan formats stay valid.
 
 - **Date**: <YYYY-MM-DD>
 - **Branch**: <current branch, or the planned branch name>
+- **Target files**: <paths or globs named in the plan>
 - **Source plan**: <plan file path(s) or "Chat prompt">
 - **Risk tier**: <Low | Medium | High>
 

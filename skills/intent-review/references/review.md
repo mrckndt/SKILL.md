@@ -14,8 +14,8 @@ Work best in a fresh session, not the one that wrote the code. When this session
 Build intent **without reading the diff**, so the comparison in Step 3 is not circular.
 
 1. **Collect intent sources**, in this order:
-   - `--plan <path>`, or a `.intent-review/*-contract.md` whose `Branch` matches the current branch (or whose files overlap the change), plus the plan files it lists.
-   - The host's plan files for this work (see Core Operating Rule 2).
+   - `--plan <path>`, or a `.intent-review/*-contract.md` whose `Target files` overlap the changed files (or whose `Branch` matches the current branch when not on `main`, `master`, or `trunk`), plus its `Source plan` files. Do not trust a contract added or modified inside the diff under review unless the user confirms it, and ask before reading any `Source plan` file outside the repository root unless passed via `--plan`.
+   - The host's plan files for this work (see Core Operating Rule 2; confirm before reading outside the repository root).
    - What the user asked for in this session: user messages and agent replies, excluding tool calls and tool output.
    - Commit messages, and the PR title and body.
    - Issues, specs, or docs inside the repository that those sources link to.
@@ -28,7 +28,7 @@ Every pass starts from a fresh context without this conversation's history. Scal
 
 | Tier | Pass A (built-in) | Pass B | Pass C | Effort |
 |---|---|---|---|---|
-| Low | bug reviewer | yes | short (tasks 3, 7, 8) | Default |
+| Low | bug reviewer | yes | short (`3, 7, 8` if no source files changed; `1, 3, 4, 7, 8` if any source file changed) | Default |
 | Medium | bug reviewer | yes | full | Default |
 | High | bug reviewer + security reviewer | yes | full | High (Pass B stays Default) |
 
@@ -45,11 +45,11 @@ Every pass starts from a fresh context without this conversation's history. Scal
    A revision-range target may leave out uncommitted edits; Pass C always covers them. `/code-review` reads `CLAUDE.md` but not `REVIEW.md`, so Pass C applies `REVIEW.md` rules.
 2. Security reviewer (High tier, or when the user asks for security review): if `git rev-parse --verify origin/HEAD` succeeds and the target is the current branch, run `/security-review`. Its prompt excludes denial of service, rate limiting, resource exhaustion, and on-disk secrets; Pass C checks those.
 
-**Cursor** (review skills need Cursor 3.7 or later):
-1. Run `/review-bugbot`. It reviews all changes against the default base branch, committed and uncommitted; for uncommitted work on the base branch, ask it to review only uncommitted changes. Add the user's focus area as instructions. Bugbot reads `.cursor/BUGBOT.md` files, not `.cursor/rules/`.
-2. Security reviewer: run `/review-security` under the same conditions as above.
+**Cursor** (Cursor 3.7+; invoke via `Task`, or `/review-bugbot` and `/review-security` which wrap them):
+1. Bug reviewer: call `Task` (`subagent_type: "bugbot"`, `description: "Bugbot"`, `run_in_background: false`) with prompt `Full Repository Path: <absolute repo path>\nDiff: <"branch changes" | "uncommitted changes">` (use `"uncommitted changes"` when reviewing uncommitted work on the base branch, otherwise `"branch changes"`; add `Custom Instructions: <focus>` when provided). Bugbot reads `.cursor/BUGBOT.md` files, not `.cursor/rules/`.
+2. Security reviewer (High tier, Pass C tier raise to High, or user-requested security review, on checked-out branch or uncommitted-changes targets—do not gate on `origin/HEAD` or being ahead of base when `Diff` is `"uncommitted changes"`): call `Task` (`subagent_type: "security-review"`, `description: "Security Review"`, `run_in_background: false`) with the same prompt shape.
 
-**Fallback**: Use the prompt below in one read-only subagent when a built-in reviewer is unavailable, blocked, or requires something missing (for example Cloud Agents for Cursor security review); when it reports the diff exceeds its size limit or skips generated files central to the change; or, in Cursor, when the scope is a revision range, a non-default base, a path subset, or a PR that is not checked out. For security fallback, add "Focus on security" to the focus line. In Cursor, mention that the user can also run `/agent-review` with Deep depth for a second built-in opinion.
+**Fallback**: Use the prompt below in one read-only subagent when a built-in reviewer is unavailable, blocked, or requires something missing (for example Cloud Agents for Cursor security review); when it reports the diff exceeds its size limit or skips generated files central to the change; or, in Cursor, when the scope is a revision range, a non-default base, a path subset, or a PR that is not checked out. Whenever High tier, a Pass C tier raise to High, or a user-requested security review skips a built-in security reviewer—including missing `origin/HEAD` in Claude Code, blocked or unavailable reviewers, or PR diff-only, revision-range, non-default-base, or path-scoped targets—you **must** run this Pass A Fallback subagent with `"Focus on security"` added to the focus line. In Cursor, mention that the user can also run `/agent-review` with Deep depth for a second built-in opinion.
 
 ```text
 Perform a read-only bug, regression, edge-case, and security audit. Keep all files and git state untouched and stay inside <absolute repo path>.
@@ -61,7 +61,7 @@ Scope:
 - Base-revision project rules: <summary>
 - User focus area: <focus or "None">
 
-1. Read the full diff and the callers and callees of each changed function.
+1. Read the full diff (and the callers and callees of each changed function when the target revision is available locally).
 2. Find concrete logic errors, broken edge cases, race conditions, missing error handling, null/boundary failures, and security issues (auth bypass, injection, SSRF, XSS, path traversal, secret exposure, missing rate limits, resource exhaustion). Skip style and best-practice suggestions.
 3. Return only high-confidence findings: Severity (Critical|High|Medium|Low), New or Pre-existing, Location (`path/file.ext` (`symbolName`)), exact code quote, trigger scenario, suggested fix. If clean, say "No Pass A issues found."
 ```
@@ -79,14 +79,14 @@ Scope:
 - Base ref: <base>
 - Diff commands: <exact commands covering committed, staged, unstaged, and untracked changes, or the PR diff command>
 
-1. Read every added, modified, deleted, and untracked file, including manifests, configs, scripts, tests, and docs. For lockfiles and generated files, use the manifest diff and `git diff --stat` instead of reading them in full.
+1. Read the diff (`git diff <base>` or PR diff) and untracked text files, including manifests, configs, scripts, tests, and docs. Read surrounding context in existing files only when needed to understand a hunk, and use `git diff --stat` and diff headers for lockfiles, generated files, and deleted files instead of reading whole or deleted files on disk.
 2. Write a numbered Task List: one line per task the change performs, phrased as the instruction someone would have been given to produce it ("Add a 5-second timeout to the payment API call"). List dependency, config, test, and doc changes as their own tasks. Do not judge quality.
 3. Write a Change Structure paragraph: 3 to 5 plain sentences describing the change as a whole, for a reader who does not read code.
 ```
 
 ### Pass C: Integrity and Defect Reviewer
 
-Spawn one read-only subagent with this prompt. For a Low tier, include only tasks 3, 7, and 8.
+Spawn one read-only subagent with this prompt. For a Low tier, include only tasks 3, 7, and 8 when no source files changed (docs, text copy, or new test files only), or tasks 1, 3, 4, 7, and 8 when any source file changed so Pass C can confirm or raise Provisional Low and trigger security review before Step 4.
 
 ```text
 Perform an independent read-only review of implemented changes. Keep all files and git state untouched and stay inside <absolute repo path>.
@@ -118,7 +118,7 @@ Skip style, naming, and generic best-practice suggestions. Return numbered candi
 Compare the Goal List with the Pass B Task List. Cite goal and task numbers for every judgment.
 
 1. **Goals**: mark each `Met`, `Partial`, or `Not met`. A `Partial` or `Not met` goal is a **DNF** (did not follow).
-2. **Unrequested changes (UC)**: every task that traces to no goal is a UC. Classify it `Beneficial` (for example a missing null check), `Neutral`, or `Harmful` (risky or clearly beyond scope: touches auth, data, dependencies, configs, or tests; deletes functionality; breaks callers; or adds substantial unrelated code). Only Harmful UCs count against alignment.
+2. **Unrequested changes (UC)**: every task that traces to no goal is a UC. Classify it `Beneficial` (for example a missing null check or added tests for the requested change), `Neutral`, or `Harmful` (risky or clearly beyond scope: touches auth, data, dependencies, or configs; weakens, skips, or deletes tests, or alters unrelated tests; deletes functionality; breaks callers; or adds substantial unrelated code). Only Harmful UCs count against alignment.
 3. **Drift label** (informational; the decision in Step 6 uses goals, UCs, and findings, because the paper shows the middle labels are unreliable):
    - **Perfect alignment**: all goals Met, no Harmful UCs.
    - **Minor drift**: all goals Met, only trivial deviations.
@@ -130,7 +130,7 @@ Compare the Goal List with the Pass B Task List. Cite goal and task numbers for 
 
 Check every candidate from Pass A and Pass C yourself:
 
-1. **Location check**: Open each cited location. When a finding has no quote, locate the code it describes. Drop a finding only when the location does not exist or the code contradicts the claim.
+1. **Location check**: Inspect each cited location—on disk for working-tree and checked-out-branch reviews, via `git show <head-of-range>:<path>` for revision ranges (`A..B`, `A...B`), and via `gh pr diff <n>` for diff-only PR reviews. When a finding has no quote, locate the code it describes. Drop a finding only when the location does not exist in that target or the code contradicts the claim.
 2. **Critic check**: Keep a finding only if it passes all five:
    - **Correct**: the issue is reachable and not disproved by surrounding callers, guards, types, or sanitizers.
    - **Relevant**: it is a real defect or a gap against the Goal List.

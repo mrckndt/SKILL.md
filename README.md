@@ -16,7 +16,7 @@ skills/
     └── <skill-name>.md
 ```
 
-Each skill is a directory whose name matches the `name` field in its `SKILL.md` frontmatter. See the specification for required fields (`name`, `description`) and optional ones (`license`, `compatibility`, `metadata`, `allowed-tools`).
+Each skill is a directory whose name matches the `name` field in its `SKILL.md` frontmatter. See the specification for required fields (`name`, `description`) and optional ones (`license`, `compatibility`, `metadata`, `allowed-tools`); skills may also include host-specific frontmatter fields (`argument-hint`, `disable-model-invocation`).
 
 ## Use
 
