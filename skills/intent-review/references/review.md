@@ -1,156 +1,201 @@
 # Change Review Playbook (`review` Mode)
 
-Review implemented changes (branch commits, staged/unstaged edits, commit ranges, paths, or PR targets) by combining built-in bug/security reviewers with an independent assurance pass over intent drift, prior-commit guarantees, algorithmic complexity, and test integrity.
+Review implemented changes in two views:
 
-## Step 1: Establish Intent, Plan Contract, and Model Choice
+- **Forest**: what the change was meant to do (Intent), what it actually does (Backtranslation), and the gap between them (Drift).
+- **Trees**: verified defects and the few code regions most worth a human check (Spotlight), plus test and guard integrity.
 
-1. **Locate saved contracts or plan files**:
-   - Check `--plan <path>` first. If omitted, check `.intent-review/*-contract.md` for a contract matching the current branch or touched area.
-   - If a contract lists `Source Plan / Prompt` paths on disk, read both the contract and those source plan files read-only.
-2. **Confirm missing context in one step**:
-   - Check whether **Original intent** (goal, spec, issue, prompt, or saved contract) is available. Gather intent from explicit user text, saved contracts, or linked plans rather than inferring intent solely from the diff.
-   - Check whether model selection requires confirmation under Core Operating Rule 5 (`--ask-model`, or Medium/High Risk on a lightweight session model).
-   - If either item needs user input, ask **one** combined question (using `AskQuestion` when available) covering: (a) Original intent + any specific area of concern ("what you want scrutinized most") + out-of-scope items, and (b) subagent model choice when triggered.
+Contents: Step 1 Intent · Step 2 Review passes · Step 3 Drift · Step 4 Verify and rank · Step 5 Evidence check · Step 6 Output
 
-## Step 2: Run Pass A and Pass B in Parallel
+Work best in a fresh session, not the one that wrote the code. When this session wrote the code, say so under Verdict, because its view of the code can leak into intent.
 
-Spawn fresh review passes without the builder's conversation history so each reviewer evaluates repository state independently. Run **Pass A** and **Pass B** concurrently in the same turn. Select effort using Core Operating Rule 4 (`low` when requested; native `default`/`auto` for Low risk, passing `medium` only to Claude Code `/code-review`; `high` for Medium and High risk).
+## Step 1: Establish Intent (Forest)
 
-### Pass A: Built-in Bug and Security Reviewers (with Fallback)
+Build intent **without reading the diff**, so the comparison in Step 3 is not circular.
 
-Select the active host environment from this table:
+1. **Collect intent sources**, in this order:
+   - `--plan <path>`, or a `.intent-review/*-contract.md` whose `Branch` matches the current branch (or whose files overlap the change), plus the plan files it lists.
+   - The host's plan files for this work (see Core Operating Rule 2).
+   - What the user asked for in this session: user messages and agent replies, excluding tool calls and tool output.
+   - Commit messages, and the PR title and body.
+   - Issues, specs, or docs inside the repository that those sources link to.
+2. **Write the Goal List**: 2 to 8 numbered goals, each an imperative sentence describing an outcome ("Lock an account after 5 failed logins"), plus any stated out-of-scope items and the user's focus area.
+3. **Ask only when needed**: When no source states the goal (common in a fresh session without a plan), ask **one** question for the original prompt or plan path, the focus area, and out-of-scope items; include the model choice when Core Operating Rule 5 requires it. When goals come from sources other than the user's own words, proceed and mark them `inferred` in the output.
 
-- **In Cursor**:
-  1. Match `Diff` to the review scope: use `"uncommitted changes"` when reviewing uncommitted work on the base branch (or when requested); use `"branch changes"` for branch-against-base reviews.
-  2. When the target is `"branch changes"` or `"uncommitted changes"` on the default base branch, launch `bugbot` (`subagent_type: "bugbot"`, `description: "Bugbot"`, `run_in_background: false`, fresh single-shot call) with this exact prompt:
-     ```text
-     Full Repository Path: <absolute repo path>
-     Diff: <"branch changes" | "uncommitted changes">
-     ```
-     Append `Custom Instructions: <user focus>` only when the user stated specific review instructions.
-  3. When Risk Tier is **High**, security review was requested, or auth/trust/network/crypto/input/config boundaries changed, also launch `security-review` (`subagent_type: "security-review"`, `description: "Security Review"`, `run_in_background: false`, fresh single-shot call) with the same `Full Repository Path` and `Diff` block.
-  4. **Trigger Pass A Fallback** whenever `bugbot` or `security-review` is unavailable (enum/plan restriction or worker environment), reports that the diff exceeded its size limit, skips generated files that are central to the change, or when the user requested a custom commit range, non-default base branch, or path subset.
+## Step 2: Run the Review Passes
 
-- **In Claude Code**:
-  1. Invoke `/code-review <medium|high> [target]` in report-only mode (`medium` for Low risk, `high` for Medium/High risk; omit `--fix`, `--comment`, `--post`, and `ultra`). Note that local `/code-review` reads `CLAUDE.md` and skips `REVIEW.md`, so include any base-revision `REVIEW.md` rules in Pass B.
-  2. When Risk Tier is **High**, security review was requested, or auth/trust/network/crypto/input/config boundaries changed, check `git rev-parse --verify origin/HEAD`. When `origin/HEAD` resolves and the target is the current branch, invoke `/security-review`. Note that `/security-review` skips denial-of-service, rate-limiting, resource exhaustion, and on-disk secrets; Pass B verifies those areas explicitly.
-  3. Wait for background review subagents to finish before starting Step 3.
-  4. **Trigger Pass A Fallback** whenever `/code-review` or `/security-review` is blocked (such as `user-invocable-only` overrides or missing `origin/HEAD` on a High-risk change).
+Every pass starts from a fresh context without this conversation's history. Scale the work to the provisional Risk Tier:
 
-- **Pass A Fallback Prompt** (spawn one fresh read-only `generalPurpose` subagent in Cursor or `Agent` in Claude Code, applying the chosen subagent `model` and effort cap):
-  ```text
-  Perform a read-only bug, regression, edge-case, and security audit. Keep all files and git state untouched, and stay strictly inside <absolute repo path>.
+| Tier | Pass A (built-in) | Pass B | Pass C | Effort |
+|---|---|---|---|---|
+| Low | bug reviewer | yes | short (tasks 3, 7, 8) | Default |
+| Medium | bug reviewer | yes | full | Default |
+| High | bug reviewer + security reviewer | yes | full | High (Pass B stays Default) |
 
-  Review scope:
-  - Base ref: <base>
-  - Diff command: <exact read-only git diff command>
-  - Changed files: <list from git diff --stat / git status>
-  - Base-branch project rules (CLAUDE.md / AGENTS.md / REVIEW.md / BUGBOT.md / .cursor/rules): <summary of rules loaded from base ref>
-  - User focus area: <focus or "None specified">
+`high` from the user raises the effort, not the passes. Launch the Pass B and Pass C subagents together in one message (background `Agent` calls in Claude Code, parallel subagent calls in Cursor), then run Pass A, and wait for all of them. If Pass C raises the tier to High, run the security reviewer before Step 4.
 
-  Tasks:
-  1. Read the full target diff and surrounding callers/callees in each touched file.
-  2. Identify concrete logic errors, broken edge cases, race/concurrency hazards, missing error handling, null/nil/boundary failures, and security vulnerabilities (auth bypass, injection, SSRF/egress, XSS, path traversal, secrets exposure, missing rate limits, resource exhaustion).
-  3. Return only high-confidence findings with: Severity (Critical|High|Medium|Low), New vs Pre-existing, File & Symbol (`path/file.ext` (`symbolName`)), Exact code quote, Trigger scenario, and Suggested fix. If clean, state "No Pass A issues found."
-  ```
+### Pass A: Built-in Reviewers
 
-### Pass B: Independent Intent, Drift, Complexity & Test-Integrity Reviewer
+**Claude Code**:
+1. Run `/code-review [high] <target>` (report only). Pass `high` only at High effort; without a level, `/code-review` reuses the level the user last typed, which counts as the user's own default. Target by case:
+   - no target and `HEAD` is the base: omit the target (it reviews uncommitted changes);
+   - branch ahead of base: `<base>...HEAD`;
+   - PR: the PR number; range: the range as given; path: the path.
 
-Spawn one fresh read-only subagent (`subagent_type: "generalPurpose"` in Cursor, or `Agent` in Claude Code, applying the chosen subagent `model` and effort cap) with this exact self-contained handoff prompt:
+   A revision-range target may leave out uncommitted edits; Pass C always covers them. `/code-review` reads `CLAUDE.md` but not `REVIEW.md`, so Pass C applies `REVIEW.md` rules.
+2. Security reviewer (High tier, or when the user asks for security review): if `git rev-parse --verify origin/HEAD` succeeds and the target is the current branch, run `/security-review`. Its prompt excludes denial of service, rate limiting, resource exhaustion, and on-disk secrets; Pass C checks those.
+
+**Cursor** (review skills need Cursor 3.7 or later):
+1. Run `/review-bugbot`. It reviews all changes against the default base branch, committed and uncommitted; for uncommitted work on the base branch, ask it to review only uncommitted changes. Add the user's focus area as instructions. Bugbot reads `.cursor/BUGBOT.md` files, not `.cursor/rules/`.
+2. Security reviewer: run `/review-security` under the same conditions as above.
+
+**Fallback**: Use the prompt below in one read-only subagent when a built-in reviewer is unavailable, blocked, or requires something missing (for example Cloud Agents for Cursor security review); when it reports the diff exceeds its size limit or skips generated files central to the change; or, in Cursor, when the scope is a revision range, a non-default base, a path subset, or a PR that is not checked out. For security fallback, add "Focus on security" to the focus line. In Cursor, mention that the user can also run `/agent-review` with Deep depth for a second built-in opinion.
 
 ```text
-Perform an independent read-only assurance review of implemented changes. Keep all files and git state untouched, and confine all reads and git queries to <absolute repo path>.
+Perform a read-only bug, regression, edge-case, and security audit. Keep all files and git state untouched and stay inside <absolute repo path>.
 
-Context packet:
+Scope:
 - Base ref: <base>
-- Diff commands to inspect: <exact git diff / git status commands covering committed, staged, unstaged, and untracked files>
-- Base-branch rules (loaded from <base>, including REVIEW.md and BUGBOT.md if present): <summary>
-- Stated intent: <user's stated goal>
-- User focus area: <user's concern or "General review">
-- Out-of-scope boundaries: <stated exclusions or "None stated">
-- Saved contract / plan files: <paths in .intent-review/ or --plan, or "None">
+- Diff commands: <exact read-only commands>
+- Changed files: <list>
+- Base-revision project rules: <summary>
+- User focus area: <focus or "None">
 
-Execute these 6 tasks in exact order (complete Task 1 from the code BEFORE reading Stated intent into your comparison):
-
-1. Blind Diff Backtranslation:
-   - Inspect every added, modified, deleted, and untracked file (including manifests, lockfiles, configs, and scripts).
-   - Write a 2 to 4 sentence factual summary of what runtime behavior, data flow, and system state actually changed based strictly on the code.
-
-2. Intent & Plan-Contract Drift Check:
-   - Compare your Task 1 summary against Stated intent, Out-of-scope boundaries, and any Saved contract / plan files.
-   - Map every requirement and contract item to `Met`, `Partially met`, or `Not met`, citing both production code (`path/file.ext` (`symbolName`)) and test assertions, with Confidence (`High`, `Medium`, `Low`).
-   - Flag unrequested behavior changes, silent plan deviations, unrelated refactors, or unexpected dependency additions.
-
-3. Prior-Commit Intent Check (Existing Code Defense):
-   - For every modified or deleted existing production block or existing test, run `git log -n 3 -L <start>,<end>:<file>` (or `git blame` + `git show`) against `<base>` to check why those lines were introduced.
-   - Flag any prior feature guarantee, edge-case fix, or invariant that this change weakens or undoes.
-
-4. Test & Gate Monotonicity Check:
-   - Inspect all touched test files, CI workflows, linter configs, and agent instruction files.
-   - Flag any deleted test, newly skipped test (`.skip`, `t.Skip`, `xit`, `@pytest.mark.skip`), weakened assertion/matcher, or test rewritten to mock away the real unit under test.
-   - Counterfactual check: for each new test, state one concrete single-line production bug that would make that test fail. Flag tautological tests that only mirror mock wiring or implementation structure.
-
-5. Algorithmic Scaling, Removed Guards & Pattern Hygiene:
-   - Trace loops, recursion, collection passes, lock scope, and I/O calls across changed paths and their callers. State time/memory/I/O scaling where non-trivial (for example O(1), O(n), O(n^2), O(n^3), N+1 DB/network calls in a loop, or unbounded memory growth) and flag superlinear or unbounded paths on variable-sized inputs.
-   - Flag silent removals of guards (auth/permission checks, tenant scoping, input validation, rate limits, timeouts, resource caps, error handling, diagnostic logs).
-   - Check neighboring modules and sibling endpoints/handlers to verify whether added code reused current safe helpers, matched sibling error/guard/idempotency handling, and steered clear of deprecated or incomplete patterns; check whether a much simpler design achieves the same goal.
-
-6. Rollback, Safe Defaults & Diagnostics:
-   - Check whether runtime behavior stays unchanged when any new flag/config is unset or disabled (when applicable), whether migrations/state changes roll back safely, and whether failure paths emit actionable errors or logs.
-
-Return a structured report with one section per task (1 through 6) plus a numbered list of candidate findings (`Severity`, `New | Pre-existing`, `Location`, `Exact snippet`, `Impact`, `Suggested fix`).
+1. Read the full diff and the callers and callees of each changed function.
+2. Find concrete logic errors, broken edge cases, race conditions, missing error handling, null/boundary failures, and security issues (auth bypass, injection, SSRF, XSS, path traversal, secret exposure, missing rate limits, resource exhaustion). Skip style and best-practice suggestions.
+3. Return only high-confidence findings: Severity (Critical|High|Medium|Low), New or Pre-existing, Location (`path/file.ext` (`symbolName`)), exact code quote, trigger scenario, suggested fix. If clean, say "No Pass A issues found."
 ```
 
-## Step 3: Two-Stage Verification, Deduplication, and Ranking
+When the change edits rule files that built-in reviewers read (`CLAUDE.md`, `.cursor/BUGBOT.md`), those reviewers follow the edited rules. Say so under Verdict and rely on Pass C for rule checks.
 
-Audit all candidate findings from Pass A and Pass B yourself before writing the output:
+### Pass B: Blind Backtranslation
 
-1. **Stage 1 - Deterministic anchor check**: Open each cited file on disk and confirm that the file, symbol, and quoted code snippet exist verbatim in the current tree. Drop any hallucinated path or mismatched quote.
-2. **Stage 2 - Semantic reachability check**: Read surrounding callers, guards, types, and sanitizers to confirm the issue is reachable and real. Drop false positives disproved by surrounding code.
-3. **Deduplicate and rank**: Merge overlapping findings across Pass A and Pass B. Label each surviving issue `New` (introduced by this change) or `Pre-existing` (already present in untouched logic), assign Confidence (`High`, `Medium`, `Low`), and sort by severity (`Critical`, `High`, `Medium`, `Low`).
+Spawn one read-only subagent at default effort. Give it **only** the prompt below: no goals, plan, contract, commit messages, or PR text, because those would bias the backtranslation.
 
-## Step 4: Emit the Change Review Decision Brief
+```text
+Describe what a code change does, using only the code. Keep all files and git state untouched and stay inside <absolute repo path>. Do not read commit messages, PR descriptions, plan files, or .intent-review/.
 
-Output the review using this structure:
+Scope:
+- Base ref: <base>
+- Diff commands: <exact commands covering committed, staged, unstaged, and untracked changes, or the PR diff command>
 
-```markdown
+1. Read every added, modified, deleted, and untracked file, including manifests, configs, scripts, tests, and docs. For lockfiles and generated files, use the manifest diff and `git diff --stat` instead of reading them in full.
+2. Write a numbered Task List: one line per task the change performs, phrased as the instruction someone would have been given to produce it ("Add a 5-second timeout to the payment API call"). List dependency, config, test, and doc changes as their own tasks. Do not judge quality.
+3. Write a Change Structure paragraph: 3 to 5 plain sentences describing the change as a whole, for a reader who does not read code.
+```
+
+### Pass C: Integrity and Defect Reviewer
+
+Spawn one read-only subagent with this prompt. For a Low tier, include only tasks 3, 7, and 8.
+
+```text
+Perform an independent read-only review of implemented changes. Keep all files and git state untouched and stay inside <absolute repo path>.
+
+Context:
+- Base ref: <base>
+- Diff commands: <exact commands covering committed, staged, unstaged, and untracked changes, or the PR diff command>
+- Base-revision rules (including REVIEW.md if present): <summary>
+- Risk tier definitions: <copy from SKILL.md Step 2>; provisional tier: <tier>
+- Goal List: <numbered goals, marked inferred where applicable>
+- Out of scope: <items or "None stated">
+- User focus area: <focus or "General review">
+
+Tasks:
+1. Blast radius and tier: Find callers of each modified function, type, route, or shared helper (list at most 10 per symbol). Confirm the provisional tier or raise it, with the reason. A tier is raised by removed guards, changed shared helpers with many callers, or touched trust boundaries.
+2. Prior-commit guarantees: Pick up to 5 modified or deleted existing blocks, prioritizing guards, tests, and shared helpers. For each, run `git log -n 3 -L <start>,<end>:<file> <base>` (or `git blame` + `git show`) and flag any earlier fix, edge case, or invariant this change weakens or undoes.
+3. Tests and gates: Flag deleted tests, newly skipped tests, weakened assertions, tests rewritten to mock away the real unit, and edits to CI, lint, or agent rule files. Say whether a Goal requires each removal (cite it). For each new test, name one realistic one-line production bug that would make it fail; flag tests that would pass anyway.
+4. Removed guards and scaling: Flag removed auth or permission checks, tenant scoping, input validation, rate limits, timeouts, resource caps, error handling, and logs. Trace loops, recursion, and I/O on changed paths; state the scaling (for example O(n) over <what n counts>, O(n^2), N+1 queries) and flag superlinear or unbounded paths on variable-size input.
+5. Fit: Check sibling modules and handlers. Flag code that ignores an existing safe helper, diverges from sibling error or guard handling, copies a deprecated pattern, or is much more complex than needed.
+6. Rollback and diagnostics: Check that behavior is unchanged when a new flag or setting is unset, that migrations or state changes can be reversed, and that failures produce actionable errors or logs.
+7. Dependencies and docs: For each new dependency, confirm it is declared in the manifest and lockfile and flag names that look like typos or near-copies of popular packages. For changed docs, READMEs, or comments, verify each factual claim against the code.
+8. Out-of-scope violations: Flag changes to anything listed as out of scope.
+
+Skip style, naming, and generic best-practice suggestions. Return numbered candidate findings: Severity (Critical|High|Medium|Low), Category (correctness|security|performance|intent|test-integrity|docs), New or Pre-existing, Location, exact snippet, impact, suggested fix, and how a non-programmer could check it (behavior to try, not code to read). Also return the confirmed tier and one short paragraph per task stating what you checked.
+```
+
+## Step 3: Score Drift
+
+Compare the Goal List with the Pass B Task List. Cite goal and task numbers for every judgment.
+
+1. **Goals**: mark each `Met`, `Partial`, or `Not met`. A `Partial` or `Not met` goal is a **DNF** (did not follow).
+2. **Unrequested changes (UC)**: every task that traces to no goal is a UC. Classify it `Beneficial` (for example a missing null check), `Neutral`, or `Harmful` (risky or clearly beyond scope: touches auth, data, dependencies, configs, or tests; deletes functionality; breaks callers; or adds substantial unrelated code). Only Harmful UCs count against alignment.
+3. **Drift label** (informational; the decision in Step 6 uses goals, UCs, and findings, because the paper shows the middle labels are unreliable):
+   - **Perfect alignment**: all goals Met, no Harmful UCs.
+   - **Minor drift**: all goals Met, only trivial deviations.
+   - **Moderate drift**: most goals Met but some Partial, and/or noticeable Harmful UCs.
+   - **Significant drift**: only some goals Met, and/or substantial Harmful UCs that add risk.
+   - **Major drift**: no goals Met, near-complete deviation, and/or severe Harmful UCs such as deleted functionality or breaking changes.
+
+## Step 4: Verify, Deduplicate, and Rank Findings
+
+Check every candidate from Pass A and Pass C yourself:
+
+1. **Location check**: Open each cited location. When a finding has no quote, locate the code it describes. Drop a finding only when the location does not exist or the code contradicts the claim.
+2. **Critic check**: Keep a finding only if it passes all five:
+   - **Correct**: the issue is reachable and not disproved by surrounding callers, guards, types, or sanitizers.
+   - **Relevant**: it is a real defect or a gap against the Goal List.
+   - **Consistent**: it agrees with the base-revision project rules.
+   - **Actionable**: it has a concrete fix.
+   - **Accepted**: a senior engineer on this codebase would agree it is worth changing.
+3. **Rank**: Merge duplicates, label each finding `New` or `Pre-existing`, assign Confidence (High|Medium|Low), and sort by severity. The top 5 New findings form the **Spotlight**.
+
+## Step 5: Evidence Check
+
+1. **Unbacked claims**: When the session, commit messages, or PR body claim that tests or checks pass, look for the command and its output in this session. Report claims without that evidence as unverified.
+2. **Optional run**: When the tier is Medium or High and the repository defines a test, lint, or type-check command (in a manifest, Makefile, README, `CLAUDE.md`, or `AGENTS.md`), ask once whether to run it. Run only approved, existing commands and report the exact command and exit status. For a Low tier, skip this and mention the command under "Try it yourself".
+
+## Step 6: Emit the Review
+
+Keep everything above "Engineer details" under about 40 lines. Include "Engineer details" only when the decision is not "No blocking issues", or when the user asks for it.
+
+````markdown
+## In plain words
+<Pass B Change Structure paragraph, corrected where Step 4 found it wrong. Name unrequested additions explicitly.>
+
+## Did it do what you asked?
+*Goals from: <sources>; marked (inferred) where you did not state them.*
+- ✓ | ◐ | ✗ <goal> — <one-line evidence>
+- + <unrequested change> — Beneficial | Neutral | Harmful (<why>)
+
+**Drift**: Perfect alignment | Minor | Moderate | Significant | Major drift — <deciding reason in one sentence>
+
 ## Verdict
-- **Decision**: SAFE TO MERGE | NEEDS FIXES | NEEDS HUMAN SIGN-OFF
-- **Risk Tier**: Low | Medium | High (<boundaries touched and caller fan-out>)
-- **Human Spotlight**: <1 to 3 highest-consequence judgments on intent fit, blast radius, or scaling that deserve human attention, or "None - routine low-risk change">
-- **Review passes run**: <exact passes and subagent models/commands executed>
-- **Checks/tests executed in this session**: Yes (`<command>` -> `<exit code and result>`) | Static review only (no test commands executed in this session)
+- **Decision**: No blocking issues | Check before merging | Fix first
+- **Why**: <one or two sentences>
+- **Risk tier**: Low | Medium | High (<what was touched>)
+- **Passes run**: <commands and subagents, with models>
+- **Checks run**: `<command>` → <exit status and result> | None (static review only)
+- **Notes**: <only when they apply: unverified "tests pass" claims; edited rule files steering built-in reviewers; reviewed in the session that wrote the code; PR reviewed diff-only; consider splitting>
 
-## What Actually Changed, Complexity & Blast Radius
-- **Observed behavior change (from code)**: <3 to 6 plain-language bullets from blind backtranslation>
-- **Plan / Intent drift**: Matches intent and plan | <exact skipped items, unrequested changes, or architecture shifts>
-- **Blast radius & callers affected**: <callers, routes, workflows, or adjacent features sharing the touched code>
-- **Algorithmic & I/O scaling**: <practical scaling of changed paths, e.g., O(n) single pass, or flag O(n^2)/O(n^3)/N+1/memory risks>
-- **Architectural fit / simpler alternative**: Fits cleanly | <concrete simpler or safer approach>
-- **Rollback, safe defaults & diagnostics**: <behavior when unset/off if applicable, migration reversibility, and error/log visibility>
+## Spotlight: where to look
+*(Write "Nothing needs a closer look." when empty.)*
+1. **[Severity] [Category] <Title>** (Confidence: High|Medium|Low) — `path/file.ext` (`symbolName`)
+   - **What can go wrong**: <concrete consequence in plain words>
+   - **How to check**: <behavior to try or question to ask the agent, without reading code>
+   - **Fix**: <direct instruction>
 
-## Requirement & Contract Coverage
-| Requirement / Contract Check | Status (`Met` \| `Partial` \| `Not met`) | Production & Test Evidence (`path/file.ext` (`symbolName`)) | Confidence |
-|---|---|---|---|
+## What to do next
+- **Prompt for your coding agent** (include when the decision is not "No blocking issues"):
+  ```text
+  <3 to 8 lines: fix each Spotlight finding, complete each Partial or Not met goal, remove each Harmful UC, keep out-of-scope items untouched, and add or restore tests that fail without the fix. Ask it to show the test command and its output.>
+  ```
+- **Try it yourself**: <2 to 4 concrete checks of behavior: what to run or click, what input to use, what result to expect>
 
-**Out of scope / deferred**: <items left untouched, or None>
+## Engineer details
+- **Blast radius**: <callers, routes, workflows, adjacent features>
+- **Scaling**: <for example O(n) over <what n counts>; flag O(n^2), N+1, unbounded memory>
+- **Fit and simpler alternative**: Fits cleanly | <concrete alternative>
+- **Rollback, defaults, diagnostics**: <behavior when unset, reversibility, error and log visibility>
+- **Earlier guarantees**: Intact | <weakened fix or invariant>
+- **Tests and gates**: <modified, skipped, or deleted tests; strength of new tests>
+- **Removed guards, dependencies, docs accuracy**: None | <details>
+- **Pre-existing issues**: None | <brief list>
+- **Open questions**: <1 to 3 decisions only a human can make, when uncertainty remains>
+````
 
-## Test, History & Control Integrity
-- **Prior-commit guarantees ("Feature A vs. Feature B")**: Intact | <prior commit intent weakened or broken>
-- **Existing tests or gates modified/deleted**: None | <exact assertion/gate change and whether protection dropped>
-- **Counterfactual strength of new tests**: Strong (fails on real behavior regression) | Partial | Weak/Tautological (<reason>)
-- **Removed guards or copied-pattern risks**: None | <removed checks, timeouts, rate limits, or flawed copied patterns>
+**Decision rules**:
+- **Fix first**: any verified Critical or High New finding; any `Not met` goal; any Harmful UC in a High-risk area; or any weakened, skipped, or deleted test that no goal requires.
+- **Check before merging**: any other Spotlight finding; any `Partial` goal or other Harmful UC; or any note about unverified test claims or edited rule files.
+- **No blocking issues**: otherwise, at any Risk Tier. Add: "An AI review can miss bugs; this is not a security sign-off."
 
-## Verified Findings (Highest Severity First)
-*(Write `No verified defects found.` when clean.)*
-
-1. **[Critical|High|Medium|Low] [New|Pre-existing] <Concise title>** (Confidence: High|Medium|Low)
-   - **Impact**: <concrete effect on behavior, security, data, scaling, or operations>
-   - **Location**: `path/file.ext` (`symbolName`)
-   - **Suggested fix**: <direct, actionable instruction ready for an engineer or coding agent>
-
-## Open Questions & Decisions to Escalate (Include When Medium/High Risk or Uncertainty Remains)
-- <1 to 3 targeted architectural, domain, security, migration, or rollout questions naming the exact uncertainty>
-```
-
-When `--explain` was also requested, read `references/explain.md` (if not yet loaded) and append the **Guided Logic & Flow Walkthrough** for the changed execution paths.
+When `--explain` was passed, append the walkthrough from `references/explain.md` for the changed execution paths.

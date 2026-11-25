@@ -30,3 +30,6 @@ nvim.log
 
 # Other
 *.pdf
+
+# Local research copies (papers are linked, not redistributed)
+skills/*/research/
