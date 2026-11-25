@@ -1,86 +1,91 @@
 # Plan Review Playbook (`plan` Mode)
 
-Evaluate a proposed plan, spec document, issue description, or prompt **before** implementation begins by checking intent clarity, domain invariants, caller blast radius, algorithmic scaling, and falsifiable verification criteria against the real codebase.
+Check a plan, spec, issue, or prompt **before** implementation: is the intent clear enough that an agent cannot misread it, does it fit the real codebase, and does it define tests that an agent cannot pass by cheating.
 
-## Step 1: Confirm Intent, Focus Area, and Boundaries
+## Step 1: Locate the Plan and Establish Intent
 
-Check whether the prompt or plan document already states:
-1. **Core goal**: Desired user/system behavior and problem solved.
-2. **Review focus**: Specific architectural choice, migration, edge case, or tradeoff the author is least sure about.
-3. **Out-of-scope boundaries**: Adjacent behaviors or files intentionally excluded.
+1. **Locate the plan**: Use, in order, a path or pasted text given after `plan`; the plan in this conversation; or the newest file in the host's plan folders (see Core Operating Rule 2; confirm with the user before reading any plan outside the repository root, and confirm the selected host plan is the right one). When none exists, ask for a path or pasted text. Read plan files read-only.
+2. **Extract** from the plan and the user's messages:
+   - **Goal List**: 2 to 8 numbered goals, each an imperative sentence describing an outcome.
+   - **Focus area**: the decision or risk the user is least sure about.
+   - **Out of scope**: adjacent behavior or files the plan intentionally leaves alone.
+3. **Ask only when needed**: When the goals are missing or ambiguous, ask **one** consolidated question (Ask tool) before judging the plan. Otherwise proceed and state the defaults you assumed.
+4. **Scope and Provisional Risk Tier**: Apply `SKILL.md` Step 2.2–2.3 to list the plan's named files, modules, and configs (plus existing `.intent-review/*-contract.md` files) and assign the Provisional Risk Tier.
 
-When Core goal is missing or ambiguous, ask **one** consolidated question (using `AskQuestion` when available) to capture the missing items before judging the plan. When Core goal is clear, proceed directly and note defaults for any unstated items.
+## Step 2: Ground the Plan in the Codebase
 
-## Step 2: Ground the Plan Against the Real Codebase
+Check the repository rather than trusting the plan text:
 
-Inspect the repository directly rather than trusting assumptions inside the plan text:
+1. **Targets and callers**: Read every file, interface, route, or schema the plan edits or imitates. Find existing callers and consumers that will feel the change.
+2. **Domain invariants**: Read base-revision `CLAUDE.md`, `AGENTS.md`, `REVIEW.md`, `.cursor/BUGBOT.md`, `.cursor/rules/`, and nearby docs and tests. Record rules the plan must keep (tenant scoping, idempotency, permission checks, transaction order, backwards compatibility).
+3. **Simpler alternative**: Look for an existing helper, config hook, middleware, or data structure that solves part of the problem with a smaller blast radius.
+4. **Scaling**: Estimate data volume and call frequency on the planned path. Flag nested scans (O(n^2), O(n^3)), per-item database or network calls in loops (N+1 queries), wide locks, or unbounded memory, and propose a lower-complexity design. Say what `n` counts.
+5. **Rollout and diagnostics**: Check behavior when a new setting is unset or off, whether data or schema changes roll back cleanly, and which errors or logs make failures visible.
+6. **Falsifiable checks**: Write concrete positive, negative, and boundary cases, including cases proving that forbidden actions stay blocked and adjacent features keep working, so an implementing agent cannot pass with happy-path or tautological tests.
 
-1. **Target files and callers**: Read every file, interface, route, or schema the plan proposes to edit or mirror. Use `Grep` to find existing callers and state consumers that will experience the change.
-2. **Domain invariants**: Read `CLAUDE.md`, `AGENTS.md`, `REVIEW.md`, `BUGBOT.md`, `.cursor/rules/`, and nearby module docs/tests for touched directories. Record existing domain rules (such as tenant scoping, idempotency, permission checks, transaction ordering, or backwards compatibility) that the plan must preserve.
-3. **Simpler alternatives**: Check whether an existing helper, configuration hook, middleware, or data structure in the codebase already solves part of the problem with smaller blast radius.
-4. **Algorithmic and I/O scaling**: Estimate data volume and call frequency on the proposed path. Flag designs that introduce nested collection scans (\(O(n^2)\) or \(O(n^3)\)), per-item database/network requests inside loops (N+1 queries), wide lock contention, or unbounded in-memory growth, and state a concrete lower-complexity design.
-5. **Safe rollout, defaults, and diagnostics**: Verify what happens when a new setting or feature is unset/disabled (when applicable), whether data/schema changes can roll back cleanly, and which errors, return statuses, or logs make failures observable at runtime.
-6. **Falsifiable verification scenarios**: Write concrete positive, negative, and boundary test cases (proving forbidden actions stay blocked and existing adjacent behavior stays intact) so an implementing agent cannot pass with tautological happy-path tests.
-
-## Step 3: Emit the Plan Review Brief
-
-Output the review using this structure:
+## Step 3: Emit the Plan Review
 
 ````markdown
-## Plan Verdict
-- **Readiness**: READY TO BUILD | REVISE PLAN FIRST
-- **Estimated Risk Tier**: Low | Medium | High (<boundaries touched and caller fan-out>)
-- **Human Spotlight**: <1 to 2 highest-consequence architectural, scaling, or boundary decisions that need human judgment>
+## In plain words
+<3 to 5 sentences: what the plan will build, how it fits the existing system, and the single most important thing to settle before building.>
 
-## Intent, Focus & Boundaries
-- **Core goal understood as**: <2 to 3 plain sentences>
-- **Requested focus check**: <assessment of the user's named concern, or "General architecture & risk pass">
-- **Ambiguities or missing decisions**: None | <specific gaps an implementing agent would otherwise guess at>
-- **Locked out-of-scope boundaries**: <files, workflows, or behaviors to leave untouched>
+## Verdict
+- **Readiness**: Ready to build | Revise plan first
+- **Risk tier**: Low | Medium | High (<boundaries touched, caller fan-out>)
+- **Decide before building**: <1 or 2 decisions that need the user's judgment>
 
-## Codebase Fit, Complexity & Invariants
-- **Domain invariants to preserve**: <rules found in base repo docs/code/tests, or "None documented - consider recording key invariants">
-- **Simpler or lower-blast-radius alternative**: Current plan fits cleanly | <concrete alternative grounded in existing repo files>
-- **Blast radius & callers affected**: <shared functions, schemas, routes, or workflows>
-- **Algorithmic & scaling assessment**: <expected time/memory/query scaling such as O(n) single pass vs. O(n^2) or N+1 risk>
-- **Rollback, safe defaults & runtime diagnostics**: <behavior when unset/off if applicable, migration safety, and error visibility>
+## Goals and boundaries
+1. <goal>
+- **Ambiguities an agent would guess at**: None | <list>
+- **Out of scope**: <files, workflows, behaviors to leave untouched>
+- **Your focus area**: <assessment, or "General pass">
 
-## Falsifiable Verification Criteria (Pre-Code Contract)
-- **Must pass (intended behavior)**: <concrete input -> expected state/output>
-- **Must reject / preserve (negative & regression cases)**: <concrete blocked, malformed, boundary, or adjacent-feature cases that prove existing behavior survives>
+## Fit with the codebase
+- **Rules to preserve**: <invariants found, or "None documented; consider recording them">
+- **Simpler alternative**: Plan fits cleanly | <alternative grounded in existing files>
+- **Affected callers**: <shared functions, schemas, routes, workflows>
+- **Scaling**: <for example O(n) single pass over <what n counts>, or the O(n^2) / N+1 risk and a fix>
+- **Rollout and diagnostics**: <behavior when off, migration safety, error visibility>
 
-## Ready-to-Paste Handoff Prompt
+## Checks the implementation must pass
+- **Must work**: <input → expected result>
+- **Must reject or preserve**: <blocked, malformed, boundary, and regression cases>
+
+## Prompt for your next session
 ```text
-<Provide a 3 to 5 line prompt tailored to Readiness:
-- When REVISE PLAN FIRST: instruct the user's planning tool or session to update the plan using its own format rules to resolve the listed ambiguities, lock the out-of-scope boundaries, and add the falsifiable verification criteria (referencing .intent-review/<slug>-contract.md if saved).
-- When READY TO BUILD: instruct the implementing session to implement <plan-source> while honoring all boundaries, domain invariants, scaling constraints, and verification criteria in .intent-review/<slug>-contract.md.>
+<3 to 5 lines.
+- Revise plan first: tell the planning session to resolve the listed ambiguities, lock the out-of-scope items, and add the checks above, using its own plan format.
+- Ready to build: tell the implementing session to implement <plan source> while honoring the goals, boundaries, rules, scaling limits, and checks in .intent-review/<slug>-contract.md (when saved).>
 ```
 ````
 
-## Step 4: Save the Verification Contract (Cross-Session Handoff)
+## Step 4: Save the Contract
 
-Keep external plan files untouched so tool-specific formats (such as multi-file spec directories or managed plan frontmatter) remain valid:
+Leave external plan files untouched so tool-specific plan formats stay valid.
 
-1. When `--save` was passed, write `.intent-review/<slug>-contract.md` immediately. Otherwise, ask via `AskQuestion` (when available) whether to save `.intent-review/<slug>-contract.md` for the upcoming implementation and `/intent-review review` sessions or keep the brief in chat only.
-2. When saving `.intent-review/<slug>-contract.md`, write this compact contract:
+1. When `--save` was passed, save immediately. Otherwise ask (Ask tool) whether to save `.intent-review/<slug>-contract.md` for the implementation and the later `/intent-review review`, or keep the review in chat.
+2. Before the first save, resolve the local exclude file via `git rev-parse --git-path info/exclude` (skip if not in a git repository) and add `.intent-review/` if it is not already ignored, so the contract never shows up as a change under review.
+3. Write:
 
 ```markdown
-# Verification Contract: <Short Title>
+# Contract: <Short Title>
 
 - **Date**: <YYYY-MM-DD>
-- **Source Plan / Prompt**: <plan file path(s) or "Chat prompt">
-- **Estimated Risk Tier**: <Low | Medium | High>
+- **Branch**: <current branch, or the planned branch name>
+- **Target files**: <paths or globs named in the plan>
+- **Source plan**: <plan file path(s) or "Chat prompt">
+- **Risk tier**: <Low | Medium | High>
 
-## Core Intent
-<2 to 3 sentences>
+## Goals
+1. <goal>
 
-## Locked Out-of-Scope Boundaries
+## Out of Scope
 - <item>
 
-## Domain Invariants & Scaling Constraints
+## Rules and Scaling Limits
 - <invariant or complexity/query bound>
 
-## Falsifiable Acceptance & Negative Checks
-- [ ] <positive check>
-- [ ] <negative / boundary / regression check>
+## Checks
+- [ ] <must work>
+- [ ] <must reject or preserve>
 ```

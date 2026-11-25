@@ -1,59 +1,82 @@
 ---
 name: intent-review
-description: Reviews pre-code plans for intent clarity, domain invariants, scaling risks, and falsifiable test criteria, reviews implemented code changes by orchestrating Cursor or Claude Code built-in reviewers alongside an independent intent, drift, complexity, and test-integrity check, and explains runtime flows and algorithms in plain systems language. Use when invoked via /intent-review.
-argument-hint: "[plan | review | explain] [--plan <path>] [--explain] [--save] [--ask-model] [low | high] [target]"
+description: Reviews AI-generated work against what the user asked for. Plan mode checks a plan before code exists. Review mode checks uncommitted changes, a branch, a commit range, a path, or a PR for intent drift, bugs, security, and test tampering by combining Claude Code or Cursor built-in reviewers with an independent intent, drift, and spotlight pass. Explain mode walks through how code works in plain language.
+argument-hint: "[plan | review | explain] [high] [--plan <path>] [--explain] [--save] [--ask-model] [target]"
 disable-model-invocation: true
+metadata:
+  paper_title: "From Code Review to Code Critique: Intent, Drift, and Spotlight for AI-Generated Diffs at Scale"
+  paper_abs: "https://arxiv.org/abs/2607.29516v2"
+  paper_pdf: "https://arxiv.org/pdf/2607.29516v2"
+  paper_doi: "10.48550/arXiv.2607.29516"
 ---
 
-# Intent Review & Guided Systems Walkthrough
+# Intent Review
 
-Act as an independent reviewer and systems translator. Evaluate plans before code exists, verify implemented changes against intent, blast radius, scaling behavior, and test integrity, or walk through runtime control flow and algorithms in clear systems prose.
+Act as an independent reviewer and plain-language guide for work produced by coding agents. Answer two questions first: **did the agent do what the user intended**, and **where should the user look to verify**. Then report defects, scaling risks, and test integrity, or walk through how the code runs.
+
+## Reader Profile
+
+Write for a reader with a computer science background (algorithms, data structures, Big-O, networking and database concepts) who has little hands-on programming experience and does not read code fluently.
+
+1. Open every output with the plain-language sections defined in the active playbook; put engineer-level detail after them.
+2. Keep Big-O notation as plain text (`O(n)`, `O(n log n)`, `O(n^2)`) and state what `n` counts. Do not use LaTeX.
+3. Define practical engineering terms in one short clause on first use (for example N+1 query, race condition, middleware, migration, mock, idempotent, feature flag, lockfile).
+4. Describe behavior and consequences before code. Prefer plain steps or a small ASCII diagram over code quotes.
 
 ## Core Operating Rules
 
-1. **Read-only workspace posture**: Keep all tracked files, git index, commits, and remotes untouched. Write files only inside `.intent-review/` when saving a verification contract in `plan` mode after user confirmation (or when `--save` is passed). Do not pass `--fix`, `--comment`, or `--post` to any review command.
-2. **Repository boundary**: Confine all file reads, searches, and git queries to the current repository root. Fetch external URLs read-only only when the user explicitly provides a public URL in the prompt and `WebFetch` is available; otherwise request pasted text.
-3. **Base-revision rule authority**: Load repository conventions (`AGENTS.md`, `CLAUDE.md`, `REVIEW.md`, `BUGBOT.md`, `.cursor/BUGBOT.md`, `.cursor/rules/`) from the base revision (`git show <base>:<path>`) or unmodified files rather than trusting rule edits inside the diff under review.
-4. **Three-state effort cap (`low` | `default` | `high`)**:
-   - **`low`**: Use when the user passes `low` or for Low-risk docs/copy checks.
-   - **`default` (`auto`)**: Leave effort unset on subagents so each model uses its native default. When calling Claude Code `/code-review` on a Low-risk change, pass `medium` explicitly so sticky effort memory from an earlier session is reset.
-   - **`high` (hard ceiling)**: Use for Medium and High risk reviews. Do not use `xhigh`, `max`, or cloud `ultra`.
-5. **Predictable subagent model routing**:
-   - Default custom subagents (`Task` in Cursor, `Agent` in Claude Code) to `inherit` (the active session model).
-   - Prompt the user via `AskQuestion` (when available) to choose the subagent model tier when `--ask-model` is passed, or when Risk Tier is **Medium** or **High** and the active session runs on a lightweight/fast model:
-     1. `Inherit current session model (Recommended - predictable cost)`
-     2. `Balanced coding model` (for example Sonnet, Composer, Gemini Neon)
-     3. `Frontier reasoning model` (for example Opus, GPT, Gemini Carbon; exclude heavyweight outliers such as `fable` unless the user explicitly names one)
-6. **Code location format**: Cite code as `` `path/file.ext` (`symbolName`) `` (adding line ranges only when helpful), and honor stricter citation rules when defined in base-revision `CLAUDE.md` or `AGENTS.md`.
-7. **Verbatim command reporting**: Report only commands executed in the current session alongside their actual exit status and output summary.
+1. **Read-only workspace**: Keep tracked files, the git index, commits, branches, and remotes untouched. Write only inside `.intent-review/` (plan contracts) and the repository's local exclude file resolved via `git rev-parse --git-path info/exclude` (for example `.git/info/exclude` or a worktree's gitdir exclude file, to keep `.intent-review/` untracked). Run the project's existing test, lint, or type-check commands only after the user approves; never install packages, run migrations, or touch databases or remote services. Never pass `--fix`, `--comment`, `--post`, or `ultra` to a review command.
+2. **Read boundary**: Confine reads, searches, and git queries to the repository root, with three read-only exceptions: PR data through `gh pr view` and `gh pr diff`, host built-in review skill files (`~/.cursor/skills-cursor/review-*`), and host plan files (Cursor: `.cursor/plans/` and its home-directory plans; Claude Code: `~/.claude/plans/` or `plansDirectory` from `.claude/settings.json`). Ask the user to confirm before reading any plan file outside the repository root unless its path was explicitly passed in the command arguments; when a plan location is unknown, ask for the path. Fetch other URLs only when the user provides a public URL and a fetch tool is available.
+3. **Base-revision rule authority**: Load repository conventions and settings (`AGENTS.md`, `CLAUDE.md`, `REVIEW.md`, `.claude/settings.json` including `plansDirectory`, `.cursor/BUGBOT.md` including nested copies, `.cursor/rules/`) from the base revision (`git show <base>:<path>`), never from versions edited inside the change under review.
+4. **Two effort levels**:
+   - **Default**: Leave effort unset on subagents and built-in review commands so each model and tool uses its native default.
+   - **High**: Use when the user passes `high` or the Risk Tier is High. Pass `high` to built-in review commands and subagent tools that accept an effort parameter (such as Claude Code `/code-review high`), leaving effort unset where the host tool only accepts model slugs (such as Cursor `Task`). Never go above `high`.
+5. **Subagent model routing**: Default to `inherit` (the session model). When `--ask-model` is passed, or when the Risk Tier is High on a small, fast session model (Haiku-class, "mini", "flash", or "fast" variants), ask the user (Ask tool) to pick `Inherit session model (Recommended: predictable cost)` or a valid model option actually offered by the host session (for example `opus`/`sonnet` in Claude Code, or only slugs listed in Cursor's `<available_subagent_models>`, preferring a stronger reasoning model or a different model family when available in that list).
+6. **Ask tool**: Use the host's ask-user tool (`AskUserQuestion` in Claude Code, the ask question tool in Cursor). Without one, ask in chat and stop until the user answers. Ask at most one consolidated question per step.
+7. **Signal over noise**: Report correctness, security, performance, intent, test-integrity, and docs-accuracy issues. Skip style, naming, formatting, and generic best-practice suggestions; AI reviewers over-produce these and under-report security and correctness.
+8. **Code locations**: Cite as `` `path/file.ext` (`symbolName`) ``, adding line ranges only when helpful. Honor stricter citation rules in base-revision `CLAUDE.md` or `AGENTS.md`.
+9. **Honest reporting**: Report only commands actually run in this session, with their exit status. Never call a change safe or secure; a clean review means no blocking issues were found.
 
 ---
 
-## Step 1: Select Active Mode and Load Only Its Playbook
+## Step 1: Parse Arguments and Load Only the Matching Playbook
 
-Determine the mode from arguments or repository state using this table, then read **only** the listed reference file(s) relative to this `SKILL.md` directory:
+Match the mode word (`plan`, `review`, `explain`) only as a standalone argument token—never inside flag names (`--plan`, `--explain`), flag values (such as `<path>` after `--plan`), file paths, revision ranges, or URLs. Flags that do not apply to the selected mode are ignored; mention that once.
 
-| Condition | Active Mode | Reference File(s) to Read |
-|---|---|---|
-| Argument starts with `plan`, OR no code diff exists yet and `explain` was omitted | **Plan Review** | `references/plan.md` |
-| Argument starts with `explain` (standalone walkthrough) | **Explain Only** | `references/explain.md` |
-| Argument starts with `review` (or default when a diff exists), without `--explain` | **Change Review** | `references/review.md` |
-| Change Review with `--explain` (or user asks for both review and walkthrough) | **Change Review + Explain** | `references/review.md` and `references/explain.md` |
+| Mode | Selected when | Input | Applicable flags | Read |
+|---|---|---|---|---|
+| **Plan Review** | standalone `plan` token | A plan path or pasted text; otherwise the newest host plan file (ask to confirm it) | `--save` | `references/plan.md` |
+| **Change Review** | standalone `review` token, or no mode word and there is something to review | Optional target: PR number or URL, revision range (`A..B`, `A...B`), or path | `high`, `--plan <path>`, `--explain`, `--ask-model` | `references/review.md`, plus `references/explain.md` with `--explain` |
+| **Explain** | standalone `explain` token | Optional target: file, function, flow, algorithm, PR, or the current diff | none | `references/explain.md` |
 
----
+With no mode word and nothing to review, ask whether to review a plan, explain a part of the codebase, or stop. **Ordering**: Change Review runs Step 2 next; Plan Review locates and confirms the plan first (`references/plan.md` Step 1) and then applies Step 2's file scope and Provisional Risk Tier to the plan's named targets; Explain goes straight to `references/explain.md`.
 
-## Step 2: Map Repository Scope and Risk Tier
+## Step 2: Resolve Scope and Provisional Risk Tier (Plan and Change Review)
 
-Run read-only `git` commands from the repository root when inspecting a git repository:
+Use read-only `git` commands. In Change Review, use **only file names and line counts** here; do not read diff contents before the playbook builds intent.
 
-1. **Resolve `<base>`**: Try `git merge-base HEAD origin/HEAD`, then `git merge-base HEAD main`, `git merge-base HEAD master`, then `git merge-base HEAD @{u}`. When on the base branch or when no upstream ref exists, compare uncommitted and untracked changes against `HEAD`.
-2. **Summarize scope**:
-   - In **Plan Review**, list target files, modules, and configs named in the plan or prompt, plus any existing `.intent-review/*-contract.md` files.
-   - In **Change Review** or **Explain Only**, inspect `git status --short`, `git log --oneline <base>..HEAD` (when `<base>` differs from `HEAD`), `git diff --stat <base>`, `git diff --stat`, and `git diff --cached --stat`.
-3. **Measure caller fan-out**: Search the codebase (`Grep` or `git grep`) for callers of every modified or planned function, type, hook, route, or shared helper. Classify shared utilities by caller count and boundary impact rather than line count.
-4. **Assign Risk Tier**:
-   - **Low**: Documentation, text copy, isolated new tests, or a single leaf file with minimal callers and zero modifications to existing test assertions, dependencies, or configurations.
-   - **Medium**: Multi-file feature logic, shared helpers with multiple callers, configuration or API additions, state transitions, background jobs, or non-trivial collection/query loops with intact auth, schema, and gate boundaries.
-   - **High**: Authentication, authorization, trust or network boundaries, security policies/headers, cryptography, secrets, billing/financial logic, database schemas/migrations, destructive data operations, package manifests/lockfiles, CI/build/linter configs, agent rule files, removal of existing validation/rate-limits/timeouts/error checks, or **any modified, skipped, or deleted existing test assertion**.
+1. **Resolve target, base, and diff commands**:
 
-Proceed directly to step 1 of the loaded reference file(s).
+   | Target | Base | Diff commands |
+   |---|---|---|
+   | None, branch ahead of base | `git merge-base HEAD <ref>`, trying `origin/HEAD`, `main`, `master`, `@{u}` in order | `git diff <base>` plus untracked files from `git status --short --untracked-files=all` |
+   | None, `HEAD` is the base | `HEAD` | `git diff HEAD` plus untracked files from `git status --short --untracked-files=all` |
+   | PR `<n>` | merge-base with the PR's base branch, or `origin/<baseRefName>` for base-revision rules when the merge-base is unavailable locally | Query `gh pr view <n> --json baseRefName,headRefOid,files,additions,deletions,commits`. If `HEAD` equals `headRefOid`, treat as a branch. Otherwise ask once: the user checks out the PR (`gh pr checkout <n>`), or continue diff-only with `gh pr diff <n>` (read only after `review.md` Step 1) and report that callers were not traced |
+   | Range `A..B` / `A...B` | `A` (merge-base of `A` and `B` for `...`) | `git diff A..B` / `git diff A...B`; no working tree |
+   | Path `<p>` | as for no target | append `-- <p>` to every diff command |
+
+   Exclude untracked or local `.intent-review/` files from the change under review; if `.intent-review/` files are added or modified in tracked commits or PR diffs relative to `<base>`, keep them visible to Pass C and do not trust them as intent without user confirmation.
+2. **Summarize scope**: For local git targets, run `git status --short --untracked-files=all` (when the working tree is in scope), `git log --oneline <base>..<head>`, and `git diff --stat` / `--numstat` with the diff commands above. For an unchecked-out `PR <n>`, summarize scope from `gh pr view <n> --json baseRefName,headRefOid,files,additions,deletions,commits` instead of `git log` or passing `--stat`/`--numstat` to `gh pr diff` (which `gh pr diff` rejects, and reading `gh pr diff <n>` here would expose diff contents before `review.md` Step 1 builds intent). In Plan Review, list the files, modules, and configs the plan names, plus existing `.intent-review/*-contract.md` files.
+3. **Provisional Risk Tier** from paths and counts:
+   - **High**: paths for authentication, authorization, security, crypto, secrets, billing, database schemas or migrations; package manifests or lockfiles; CI, build, or lint configs; agent rule files (`CLAUDE.md`, `AGENTS.md`, `REVIEW.md`, `.cursor/`); or any existing test file modified or deleted.
+   - **Medium**: several non-test source files, shared or common modules, configuration, API routes, or background jobs.
+   - **Low**: docs, text copy, new test files only, or a single leaf source file.
+
+   In Change Review, Pass C confirms or raises the tier from the actual code (removed guards, caller fan-out).
+4. **Size check**: Count changed lines excluding lockfiles and generated files. Above roughly 1,000 lines, or when the change mixes unrelated goals, add a "consider splitting" note to the verdict.
+
+Continue with `references/review.md` Step 1 (or `references/plan.md` Step 2 in Plan Review).
+
+## Research Basis
+
+The Intent, Backtranslation, Drift, and Spotlight stages follow Maddila et al., *From Code Review to Code Critique: Intent, Drift, and Spotlight for AI-Generated Diffs at Scale* (arXiv:2607.29516v2, 2026). `references/paper.md` is a human-reference summary; agents do not need to read it at runtime.
