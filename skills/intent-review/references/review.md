@@ -217,7 +217,7 @@ Run existing repository checks **only** before candidate falsification, under us
    - Offer pre-verdict check execution **only** when confirmed Risk Tier is `Medium`, `Medium-sec`, or `High`, `Inspection Mode` is `worktree`, and `<base>` defines at least one check command (when path-scoped with `-- <p>`, offer only checks that safely target `<p>` or run read-only repo-wide validation).
    - In `revision-range` or `diff-only-pr` mode, **skip** local check execution because the working tree does not match the reviewed target, and record a worktree-mismatch / diff-only note for Verdict `Notes`. On `Low` confirmed Risk Tier, skip execution here and list the `<base>` command(s) under `"Try it yourself"`.
 3. **Check Cross-Model Critic eligibility**:
-   - Offer Cross-Model Critic routing **only** when (a) confirmed Risk Tier is `High` or `--ask-model` was passed, (b) the host exposes a callable, non-downgrade model from **another provider family** (never `fast`, `mini`, `flash`, or `haiku` tiers), **and** (c) at least one provisional `Critical` or `High` candidate exists **or** Step 4 local checks are being offered (otherwise Pass 5B cannot run). Skip the routing question and stay on the session model whenever any condition is unmet; if explicit `--ask-model` is skipped because no qualifying alternate-family model is exposed, record `"Cross-Model Critic skipped (--ask-model: no qualifying alternate-family model exposed)"` in Verdict `Notes`.
+   - Offer Cross-Model Critic routing **only** when (a) `--ask-model` was passed (a `High` Risk Tier alone never triggers it), (b) the host exposes a callable, non-downgrade model from **another provider family** (never `fast`, `mini`, `flash`, or `haiku` tiers), **and** (c) at least one provisional `Critical` or `High` candidate exists **or** Step 4 local checks are being offered (otherwise Pass 5B cannot run). Skip the routing question and stay on the session model whenever a condition is unmet; if explicit `--ask-model` is skipped because no qualifying alternate-family model is exposed, record `"Cross-Model Critic skipped (--ask-model: no qualifying alternate-family model exposed)"` in Verdict `Notes`.
 4. **Single consolidated Post-Hunt Gate**:
    - When either or both confirmations apply, ask once using independent `<=3`-option questions (no `"Other"` option) in the same turn so declining local check execution never forfeits Cross-Model Critic review:
      - **Check execution question** (when eligible): display the exact shell command string(s) from `<base>`, the working-tree script/target definition (and any `pre*`/`post*` lifecycle hook diff) whenever a manifest or build file defining an offered check command changed relative to `<base>`, plus any modified/untracked `package.json`, `Makefile`, `pyproject.toml`, `conftest.py`, `sitecustomize.py`, `build.rs`, `.env*`, or lint/CI config warning, and offer `<=3` concrete choices (e.g., run all listed checks, run lint/type-check only, or skip local checks).
@@ -284,7 +284,7 @@ Required Output (one record per input candidate ID):
 
 ### Pass 5B: Conditional `Cross-Model Critic`
 
-Run **only** when (1) confirmed Risk Tier is `High` or `--ask-model` was passed, (2) the user approved a callable, non-downgrade alternate-provider-family model at Step 4 (never `fast`, `mini`, `flash`, or `haiku`), **and** (3) at least one `Critical` or `High` finding survived Pass 5A. Otherwise skip directly to ranking. Dispatch in a fresh read-only shell-capable subagent on that approved model (`high` effort when supported); retry once on error, and if still unavailable, keep Pass 5A's verified findings and disclose the fallback in Verdict `Notes`.
+Run **only** when (1) `--ask-model` was passed, (2) the user approved a callable, non-downgrade alternate-provider-family model at the Step 4 gate (never `fast`, `mini`, `flash`, or `haiku`), **and** (3) at least one `Critical` or `High` finding survived Pass 5A. Otherwise skip directly to ranking. Dispatch in a fresh read-only shell-capable subagent on that approved model (`high` effort on confirmed `High` tier or explicit `high`; Default otherwise); retry once on error, and if still unavailable, keep Pass 5A's verified findings and disclose the fallback in Verdict `Notes`.
 
 ```text
 Role: Cross-Model Critic
@@ -373,7 +373,7 @@ Write every user-facing section for the systems-minded reader (`SKILL.md` `Reade
 1. **[Severity] [Category] <Title>** (Confidence: High|Medium|Low) — `path/file.ext` (`symbolName`)
    - **What can go wrong**: <concrete runtime or boundary consequence in plain systems terms, without function/variable call-chain narration>
    - **How to check**: <observable behavior to try or question to ask the agent, without reading code>
-   - **Fix**: <direct, concrete change>
+   - **Fix**: <one sentence: the concrete change>
 
 ## What to do next
 - **Prompt for your coding agent** (include when the decision is not "No blocking issues"):
