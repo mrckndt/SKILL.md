@@ -10,7 +10,6 @@ metadata:
 # Token Saver
 
 Input: `$ARGUMENTS`
-Skill directory: `${CLAUDE_SKILL_DIR}`
 
 ## Parse Command
 
@@ -21,7 +20,7 @@ Read `Input` above if substituted; if unsubstituted, take the text after `token-
 - `stop`, `disable`, or `off`: run **Disable**.
 - Anything else (unknown token or extra words after a valid option): run **Reject**.
 
-Resolve `<skill-dir>` from `Skill directory` if expanded; otherwise use the directory containing this `SKILL.md`.
+Resolve `<skill-dir>` as the directory containing this `SKILL.md`.
 
 ## Mode Lookup
 
