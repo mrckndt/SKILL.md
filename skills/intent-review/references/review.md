@@ -329,61 +329,78 @@ Tasks:
 
 ### Finalize Spotlight and Reconcile `SYSTEM_FOOTPRINT`
 
-1. Apply Pass 5B verdicts (`CONFIRM`, `DOWNGRADE`, `REFUTE`): drop `REFUTE`d items, update `DOWNGRADE`d severities and confidences, combine with surviving `Medium` and `Low` findings from Pass 5A, and sort `New` verified findings by calibrated Severity (`Critical` > `High` > `Medium` > `Low`) and Confidence (`High` > `Medium` > `Low`). The top 5 `New` verified findings form the **Spotlight** (keep `Pre-existing` verified issues separate).
-2. Verify every `SYSTEM_FOOTPRINT` location exists in the reviewed target; strip defect assertions whose `[ref: H<n>]` candidate was `REFUTED` (preserving neutral architectural facts where accurate), and note any factual misreadings in `Blind Backtranslator` `CHANGE_STRUCTURE` exposed by Step 5 for correction in Step 6.
+1. **Rank Spotlight findings**: Apply Pass 5B verdicts (`CONFIRM`, `DOWNGRADE`, `REFUTE`): drop `REFUTE`d items, update `DOWNGRADE`d severities and confidences, combine with surviving `Medium` and `Low` findings from Pass 5A, and sort `New` verified findings by calibrated Severity (`Critical` > `High` > `Medium` > `Low`) and Confidence (`High` > `Medium` > `Low`). The top 5 `New` verified findings form the **Spotlight**; if more than 5 `New` verified findings survive, record the overflow count in Verdict `Notes` (`+<N> additional verified New findings omitted from Spotlight — ask to list them`). Keep verified `Pre-existing` findings separate (surfacing only `Critical`/`High` ones on touched paths under `## What to do next`).
+2. **Verify and reconcile `SYSTEM_FOOTPRINT`**:
+   - Verify every non-`NONE` `SYSTEM_FOOTPRINT` file tag exists in the target diff under the active `Inspection Mode`; drop phantom or off-diff entries.
+   - Exclude test-only mocks, stubs, and fixtures (`*test*`, `*spec*`, `__tests__/`, `testdata/`, `fixtures/`) from production external HTTP/API, database, cache/state, and behavior-shift footprint lines.
+   - Drop or strip every defect-asserting footprint claim—including `error_handling_gaps`, `duplication_bypassed_helpers`, superlinear/`N+1` `scaling_bigo`, and missing-timeout, missing-guard, or unbounded-concurrency qualifiers—whose linked `[ref: H<n>]` candidate did not survive Pass 5A and Pass 5B. Retain any verified neutral operational fact while removing `[ref: H<n>]` tags from the final rendered text.
+3. **Retain evidence for drill-downs**: Keep Pass 5A/5B `VERIFIED_EVIDENCE` citations in Orchestrator context so follow-up user drill-down requests (`R21`) can be answered directly, and note any factual misreadings in `Blind Backtranslator` `CHANGE_STRUCTURE` exposed by Step 5 for correction in Step 6.
 
 ## Step 6: Emit the Review
 
-Keep everything above "Engineer details" under about 40 lines. Include "Engineer details" only when the decision is not "No blocking issues", or when the user asks for it.
+Write every user-facing section for the systems-minded reader (`SKILL.md` `Reader Profile`): make system components, data flows, trust or service boundaries, and runtime consequences the subjects of sentences—never narrate function, class, or variable call chains, emit unsolicited code quotes, or add an `Engineer details` dump. Confine exact `` `path/file.ext` (`symbolName`) `` citations strictly to trailing reference tags and the self-contained `Prompt for your coding agent`.
 
 ````markdown
 ## In plain words
-<Blind Backtranslator Change Structure paragraph, corrected where Step 5 found it wrong. Name unrequested additions explicitly.>
+<Blind Backtranslator Change Structure paragraph, corrected where Step 5 found it wrong. Name unrequested additions explicitly. Keep system components, boundaries, and runtime outcomes as sentence subjects; zero code quotes or symbol names.>
 
 ## Did it do what you asked?
 *Goals from: <sources>; marked (inferred) where you did not state them.*
-- ✓ | ◐ | ✗ <goal> — <one-line evidence>
+- ✓ | ◐ | ✗ <goal> — <one-line system-level evidence>
 - + <unrequested change> — Beneficial | Neutral | Harmful (<why>)
 
 **Drift**: Perfect alignment | Minor | Moderate | Significant | Major drift — <deciding reason in one sentence>
 
 ## Verdict
 - **Decision**: No blocking issues | Check before merging | Fix first
-- **Why**: <one or two sentences>
-- **Risk tier**: Low | Medium | High (<what was touched>)
-- **Passes run**: <commands and subagents, with models>
+- **Why**: <one or two systems-level sentences>
+- **Risk tier**: Low | Medium | High (<system boundaries touched, caller fan-out>)
+- **Passes run**: <Backtranslator, active Hunters, Disprover, and Cross-Model Critic when run, with models>
 - **Checks run**: `<command>` → <exit status and result> | None (static review only)
-- **Notes**: <only when they apply: unverified "tests pass" claims; edited passive rule files in diff; single-session sequential fallback used; reviewed in the session that wrote the code; revision-range worktree mismatch or PR reviewed diff-only; consider splitting>
+- **Notes**: <include only items that apply: single-session sequential fallback used; revision-range worktree mismatch or PR reviewed diff-only; unverified "tests pass" claims; environment-blocked check commands; Cross-Model Critic fallback after model error; edited passive rule files in diff; reviewed in the session that wrote the code; +N additional verified New findings omitted from Spotlight — ask to list them; consider splitting>
+
+## System footprint
+*(Render ONLY non-empty verified categories below in plain operational terms with trailing `— \`path/file.ext\` (\`symbolName\`)` tags. When all eight categories are empty, print only: `No external I/O, schema, dependency, state, or behavior-boundary changes.`)*
+- **External HTTP / APIs** (`external_http_api`): <new/changed outbound calls, timeouts, retries, or payload contracts> — `path/file.ext` (`symbolName`)
+- **Database schema & writes** (`db_schema_writes`): <schema migrations, columns/indexes, write-volume or transaction shifts> — `path/file.ext` (`symbolName`)
+- **Dependencies, config & env** (`deps_config_env`): <new/updated packages, lockfile shifts, config or environment knobs> — `path/file.ext`
+- **State, caches, timers & concurrency** (`state_timers_concurrency`): <new caches, background timers/jobs, locks, or concurrency changes> — `path/file.ext` (`symbolName`)
+- **Duplication & bypassed helpers** (`duplication_bypassed_helpers`): <verified duplicated paths or bypassed safe project helpers> — `path/file.ext` (`symbolName`)
+- **Behavior shifts** (`behavior_shifts`): <major observable behavior or default shifts to existing features> — `path/file.ext` (`symbolName`)
+- **Error-handling gaps** (`error_handling_gaps`): <verified unhandled or swallowed error boundaries> — `path/file.ext` (`symbolName`)
+- **Scaling (Big-O)** (`scaling_bigo`): <plain-text Big-O such as `O(n)` over `<what n counts>`, or verified `O(n^2)` / `N+1` / unbounded growth> — `path/file.ext` (`symbolName`)
 
 ## Spotlight: where to look
 *(Write "Nothing needs a closer look." when empty.)*
 1. **[Severity] [Category] <Title>** (Confidence: High|Medium|Low) — `path/file.ext` (`symbolName`)
-   - **What can go wrong**: <concrete consequence in plain words>
-   - **How to check**: <behavior to try or question to ask the agent, without reading code>
-   - **Fix**: <direct instruction>
+   - **What can go wrong**: <concrete runtime or boundary consequence in plain systems terms, without function/variable call-chain narration>
+   - **How to check**: <observable behavior to try or question to ask the agent, without reading code>
+   - **Fix**: <direct, concrete change>
 
 ## What to do next
 - **Prompt for your coding agent** (include when the decision is not "No blocking issues"):
   ```text
-  <3 to 8 lines: fix each Spotlight finding, complete each Partial or Not met goal, remove each Harmful UC, keep out-of-scope items untouched, and add or restore tests that fail without the fix. Ask it to show the test command and its output.>
+  <100% self-contained 4 to 10 lines with ZERO back-references to this review (never write "Spotlight #1", "Goal 2 above", "the findings above", or "above"): name every exact `path/file.ext` and `symbolName`, state each concrete fix, each Partial/Not met goal to finish, each Harmful UC to remove, any out-of-scope boundaries to leave untouched, and the exact `<base>` check commands (or new/restored tests that fail without the fix) to run and report output for.>
   ```
-- **Try it yourself**: <2 to 4 concrete checks of behavior: what to run or click, what input to use, what result to expect>
+- **Try it yourself**: <2 to 4 concrete observable checks: what to run or click, what input to use, what result to expect; include `<base>` check commands when `Low` tier or skipped>
+- **Pre-existing high-risk issues on touched paths** *(omit when none)*: <brief bullets for verified Critical/High Pre-existing defects on touched paths — `path/file.ext` (`symbolName`)>
+- **Open questions** *(omit when none)*: <1 to 2 blocking decisions only a human can make>
 
-## Engineer details
-- **Blast radius**: <callers, routes, workflows, adjacent features>
-- **Scaling**: <for example O(n) over <what n counts>; flag O(n^2), N+1, unbounded memory>
-- **Fit and simpler alternative**: Fits cleanly | <concrete alternative>
-- **Rollback, defaults, diagnostics**: <behavior when unset, reversibility, error and log visibility>
-- **Earlier guarantees**: Intact | <weakened fix or invariant>
-- **Tests and gates**: <modified, skipped, or deleted tests; strength of new tests>
-- **Removed guards, dependencies, docs accuracy**: None | <details>
-- **Pre-existing issues**: None | <brief list>
-- **Open questions**: <1 to 3 decisions only a human can make, when uncertainty remains>
+*Ask about any finding, footprint item, or execution path if you want exact source lines, design trade-offs, or a deeper execution trace.*
 ````
 
 **Decision rules**:
-- **Fix first**: any verified Critical or High New finding; any `Not met` goal; any Harmful UC in a High-risk area; or any weakened, skipped, or deleted test that no goal requires.
-- **Check before merging**: any other Spotlight finding; any `Partial` goal or other Harmful UC; or any note about unverified test claims or edited rule files.
-- **No blocking issues**: otherwise, at any Risk Tier. Add: "An AI review can miss bugs; this is not a security sign-off."
+- **Fix first**: any verified `Critical` or `High` `New` finding; any verified `New` `R14` check failure; any `Not met` goal; any `Harmful` UC in a High-risk area; or any weakened, skipped, or deleted test that no non-`(inferred)` goal requires.
+- **Check before merging**: any other Spotlight finding; any `Pre-existing` or `environment-blocked` `R14` check failure; any `Partial` goal or other `Harmful` UC; or any note about unverified `"tests pass"` claims. (Intentional edits to passive rule files such as `CLAUDE.md` or `AGENTS.md` are audited against `<base>` and disclosed in Verdict `Notes` without automatically forcing `Check before merging` when no defect or `Harmful` UC survives.)
+- **No blocking issues**: otherwise, at any Risk Tier. Add: `"An AI review can miss bugs; this is not a security sign-off."`
 
-When `--explain` was passed, append the walkthrough from `references/explain.md` for the changed execution paths.
+When `--explain` was passed, append the walkthrough from `<skill-dir>/references/explain.md` for the changed execution paths, **omitting a duplicate `## In plain words` section** (start at `## 1. Mental model`) and **never re-surfacing findings refuted or dropped in Step 5**.
+
+## Pre-Emission Self-Check (`R18`–`R21`)
+
+Before emitting the Change Review, verify:
+1. Sentence subjects across every prose section name system components, data flows, boundaries, or runtime consequences—never function, class, or variable call chains—and zero unsolicited code quotes appear.
+2. `## System footprint` renders only non-empty verified categories from the 8 `R12` categories (excluding test-fixture mocks and dropping/stripping any defect claim whose `[ref: H<n>]` candidate was refuted), or prints the exact single-line empty state when all 8 are empty; Big-O uses plain text stating what `n` counts.
+3. Exact `` `path/file.ext` (`symbolName`) `` citations appear strictly in trailing `` — `path/file.ext` (`symbolName`) `` tags and inside `Prompt for your coding agent`, and `Prompt for your coding agent` is 100% self-contained with zero back-references (`"Spotlight #1"`, `"Goal 2 above"`, `"above"`).
+4. No `Engineer details` section appears; verified `Critical`/`High` pre-existing issues on touched paths and blocking open questions (if any) are surfaced under `## What to do next`, `>5` New finding overflow is noted in Verdict `Notes`, and the review closes with the 1-line on-demand drill-down offer.
+5. Verdict `Decision` honors `R14` check failures (`Fix first` for `New`, `Check before merging` for `Pre-existing` or `environment-blocked`), and Verdict `Notes` discloses single-session fallback (`R4`), diff-only/worktree mismatch, or unverified test claims whenever applicable.
