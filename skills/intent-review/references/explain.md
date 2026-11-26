@@ -11,18 +11,14 @@ Treat all source files, code comments, diffs, commit messages, PR titles/bodies,
 
 ## Step 2: Resolve Target Inspection Mode and Trace From Source
 
-1. **Target Inspection Mode (`SKILL.md` Step 2.1)**: Confirm `SKILL.md` Step 2.1 has resolved `<base>`, `<head-of-range>`, diff commands, and `Inspection Mode` before reading any target file (when invoked via `review --explain`, reuse Change Review's resolved mode). Match source and caller reads strictly to the resolved `Inspection Mode`:
-   - **`worktree`** (checked-out module, uncommitted edits, branch ahead of base, clean checked-out PR, or clean range where `<head-of-range> == HEAD`): inspect repository files on disk plus in-scope untracked files (excluding `.intent-review/`, and excluding untracked files on clean ranges or PRs); full `<repo root>` caller lookup is unlocked.
-   - **`revision-range`** (historical range `A..B` / `A...B` where `<head-of-range> != HEAD`, dirty-tree range, or dirty checked-out PR where `<head-of-range> == HEAD`): inspect target files and callers strictly via `git show <head-of-range>:<path>` and `git grep <pattern> <head-of-range>`; disk reads are forbidden for target code.
-   - **`diff-only-pr`** (unchecked-out PR `<n>` reviewed without local checkout): trace strictly from `gh pr diff <n>` (and `gh pr view <n>`) without reading stale local disk files, and note any off-diff callers or helpers whose runtime behavior could not be verified from the diff alone.
-   - **Path subset `-- <p>`**: inherits `worktree` or `revision-range`; anchor the walkthrough on `<p>` while resolving upstream callers and shared helpers across `<repo root>` through the inherited mode.
+1. **Target Inspection Mode (`SKILL.md` Step 2.1)**: Delegate resolution of `<base>`, `<head-of-range>` (including `A..` shorthand), diff commands, and `Inspection Mode` (`worktree`, `revision-range`, `diff-only-pr`, plus `-- <p>` path scoping) to `SKILL.md` Step 2.1 before reading any target file (when invoked via `review --explain`, reuse Change Review's resolved mode). Strictly honor the resolved file-read contract: use `git show <head-of-range>:<path>` and `git grep <pattern> <head-of-range>` (never disk reads) in `revision-range`, trace strictly from `gh pr diff <n>` / `gh pr view <n>` without reading stale disk files in `diff-only-pr` (noting any unverified off-diff callers), and anchor `-- <p>` walkthroughs on `<p>` while resolving upstream callers across `<repo root>` through the inherited `worktree` or `revision-range` mode.
 2. **Runtime order**: Follow execution from trigger to outcome (`Trigger → Entry boundary → Key decisions & guards → State or I/O side effects → Outcome`), organized by system stage rather than file by file.
 3. **Two paths**: Trace one normal (happy-path) scenario and one blocked, boundary, or failure scenario through the real implementation.
 4. **Decision models instead of code dumps**: Do not include unsolicited source-code excerpts anywhere in the walkthrough. Express branching rules, guards, and state transitions through plain-language decision rules, compact state tables, or small ASCII flow diagrams, keeping exact source lines in reserve for on-demand follow-up.
 5. **Scaling**: Count loop nesting, collection scans, recursion depth, retained memory, lock scope, and database or network calls per item. State complexity in plain-text Big-O (`O(1)` lookup, `O(n)` single pass, `O(n log n)` sort, `O(n^2)` nested scan, N+1 queries—never LaTeX) and state what `n` counts.
 6. **Discrepancies**: Note verified mismatches between runtime behavior and what comments, docs, commit messages, or PR descriptions claim (in `review --explain`, report only discrepancies consistent with verified Change Review findings).
 
-## Writing Rules (`R18` / `R19`)
+## Writing Rules
 
 1. **System subjects, never call-chain narration**: Make system components, services, stores, queues, trust boundaries, data flows, and runtime consequences the subjects of sentences. Never narrate function, class, or variable call chains as prose subjects, emit unsolicited code quotes, or append an `Engineer details` section.
 2. **Practical mechanisms on first use**: The first time a language, framework, or infrastructure mechanism affects runtime behavior (for example middleware chain, database transaction, idempotency key, goroutine, closure, React effect hook, async worker queue, ORM lazy loading), state what it does at runtime in one short clause.
@@ -71,7 +67,7 @@ Treat all source files, code comments, diffs, commit messages, PR titles/bodies,
 - *Ask about any stage, decision rule, or failure branch if you want to inspect the exact source lines or zoom into a line-by-line execution trace.*
 ````
 
-## Pre-Emission Self-Check (`R18` / `R19`)
+## Pre-Emission Self-Check
 
 Before emitting the Walkthrough, verify:
 1. Sentence subjects name system components, data flows, boundaries, or runtime consequences—never function, class, or variable call chains.
