@@ -55,7 +55,7 @@ Match the mode word (`plan`, `review`, `explain`) only as a standalone argument 
 
 **Lazy 1-hop security loading**: [references/security.md](references/security.md) is linked here for 1-hop discovery, but read `<skill-dir>/references/security.md` only after Step 2 resolves Provisional `High` or `Medium-sec`, user arguments request security review, or the Integrity Hunter raises the Risk Tier.
 
-With no mode word and nothing to review, ask (`<=3` options) whether to review a plan, explain part of the codebase, or stop. **Ordering**: Change Review runs Step 2 next; Plan Review locates and confirms the plan first (`references/plan.md` Step 1) and then applies Step 2.1–2.3 to the plan's named targets; Explain goes straight to `references/explain.md` (applying Step 2.1's `Inspection Mode` when targeting a range, PR, or diff).
+With no mode word and nothing to review, ask (`<=3` options) whether to review a plan, explain part of the codebase, or stop. **Ordering**: Change Review runs Step 2 next; Plan Review locates and confirms the plan first (`references/plan.md` Step 1) and then applies Step 2.1–2.3 to the plan's named targets; Explain runs Step 2.1 first to resolve `<base>`, diff commands, and `Inspection Mode` (skipping Step 2.2–2.4), then continues with `references/explain.md`.
 
 ## Step 2: Resolve Scope, Target Inspection Mode, and Provisional Risk Tier
 
@@ -81,7 +81,7 @@ Use read-only `git` and `gh` commands. In Change Review, inspect **only file nam
    - In Change Review, the Integrity Hunter confirms or raises the Provisional Risk Tier from actual caller fan-out and guard changes.
 4. **Size check**: Count changed lines excluding lockfiles and generated files. Above roughly 1,000 lines, or when unrelated goals are mixed, add a `"consider splitting"` note in Verdict.
 
-Continue with `references/review.md` Step 1 (or `references/plan.md` Step 2 in Plan Review).
+Continue with `references/review.md` Step 1 (or `references/plan.md` Step 2 in Plan Review, or `references/explain.md` Step 1 in Explain).
 
 ## Research Basis
 

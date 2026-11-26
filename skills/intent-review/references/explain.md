@@ -11,9 +11,9 @@ Treat all source files, code comments, diffs, commit messages, PR titles/bodies,
 
 ## Step 2: Resolve Target Inspection Mode and Trace From Source
 
-1. **Target Inspection Mode (`SKILL.md` Step 2.1)**: Match source and caller reads to the resolved `Inspection Mode`:
-   - **`worktree`** (checked-out module, uncommitted edits, branch ahead of base, or clean range where `<head-of-range> == HEAD`): inspect repository files on disk plus in-scope untracked files (excluding `.intent-review/`); full `<repo root>` caller lookup is unlocked.
-   - **`revision-range`** (historical range `A..B` / `A...B` where `<head-of-range> != HEAD` or worktree is dirty): inspect target files and callers strictly via `git show <head-of-range>:<path>` and `git grep <pattern> <head-of-range>`; disk reads are forbidden for target code.
+1. **Target Inspection Mode (`SKILL.md` Step 2.1)**: Confirm `SKILL.md` Step 2.1 has resolved `<base>`, `<head-of-range>`, diff commands, and `Inspection Mode` before reading any target file (when invoked via `review --explain`, reuse Change Review's resolved mode). Match source and caller reads strictly to the resolved `Inspection Mode`:
+   - **`worktree`** (checked-out module, uncommitted edits, branch ahead of base, clean checked-out PR, or clean range where `<head-of-range> == HEAD`): inspect repository files on disk plus in-scope untracked files (excluding `.intent-review/`, and excluding untracked files on clean ranges or PRs); full `<repo root>` caller lookup is unlocked.
+   - **`revision-range`** (historical range `A..B` / `A...B` where `<head-of-range> != HEAD`, dirty-tree range, or dirty checked-out PR where `<head-of-range> == HEAD`): inspect target files and callers strictly via `git show <head-of-range>:<path>` and `git grep <pattern> <head-of-range>`; disk reads are forbidden for target code.
    - **`diff-only-pr`** (unchecked-out PR `<n>` reviewed without local checkout): trace strictly from `gh pr diff <n>` (and `gh pr view <n>`) without reading stale local disk files, and note any off-diff callers or helpers whose runtime behavior could not be verified from the diff alone.
    - **Path subset `-- <p>`**: inherits `worktree` or `revision-range`; anchor the walkthrough on `<p>` while resolving upstream callers and shared helpers across `<repo root>` through the inherited mode.
 2. **Runtime order**: Follow execution from trigger to outcome (`Trigger → Entry boundary → Key decisions & guards → State or I/O side effects → Outcome`), organized by system stage rather than file by file.
