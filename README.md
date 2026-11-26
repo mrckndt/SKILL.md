@@ -25,7 +25,7 @@ Each skill is a directory whose name matches the `name` field in its `SKILL.md` 
 
 `/token-saver` starts token saver. Arguments: `on` or `start` start it, `off` or `stop` stop it, `status` reports the mode. Plain `token-saver on`, `token-saver start`, `token-saver off`, `token-saver stop`, "stop token saver", and "turn off token saver" also work. A bare "token saver" does not start it.
 
-`/intent-review` checks agent-generated work against your intent (`plan`, `review`, `explain`) following [Maddila et al., 2026](https://arxiv.org/abs/2607.29516v2) (Intent, Drift, Spotlight). Supports `high`, `--explain`, `--save`, and `--ask-model`.
+`/intent-review` runs portable intent, system-footprint, defect, and security critique (`plan`, `review`, `explain`) across any Agent Skills-compatible host, combining [Maddila et al., 2026](https://arxiv.org/abs/2607.29516v2) (Intent, Drift, Spotlight) with specialist hunters and cold-start falsification. Supports `high`, `--plan <path>`, `--explain`, `--save`, and `--ask-model`.
 
 `skills/compound-engineering-md/` bundles portable, script-free Markdown ports of the Compound Engineering skills (`ce-brainstorm`, `ce-plan`, `ce-work`, `ce-code-review`, `ce-compound`, etc.). See [its README](skills/compound-engineering-md/README.md) for the full list and workflow.
 
@@ -34,3 +34,5 @@ Each skill is a directory whose name matches the `name` field in its `SKILL.md` 
 ```bash
 skills-ref validate ./skills/<skill-name>
 ```
+
+For skills that declare host-specific frontmatter extensions (`argument-hint`, `disable-model-invocation`), strip only those two keys in a temporary copy before running strict `skills-ref validate`.

@@ -79,19 +79,21 @@ The paper's closing question: "did the agent do what you intended, and where sho
 | Paper | Skill |
 |---|---|
 | Intent from conversation, plans, and metadata, never from code | `review.md` Step 1: Goal List built before reading the diff |
-| Blind backtranslation | `review.md` Pass B: a subagent sees only the diff |
+| Blind backtranslation | `review.md` Pass 2A (`Blind Backtranslator`): a fresh subagent (or role-reset pass) sees only the diff |
 | Met / partial / unmet, DNF and UC, harmful UCs only | `review.md` Step 3 |
-| Five drift buckets | `review.md` Step 3, as informational labels only; no numeric score, and the decision uses goals, harmful UCs, and findings because the middle buckets are unreliable |
-| Generator + five-criterion critic | Passes A and C generate; `review.md` Step 4 applies the critic |
-| Cheap, focused critic | Passes scaled to the risk tier; `high` effort only for High risk |
+| Five drift buckets | `review.md` Step 3, as informational labels only; no numeric score, and the decision uses goals, harmful UCs, verified checks, and findings because the middle buckets are unreliable |
+| Generator + five-criterion critic | Portable Specialist Hunters (`review.md` Passes 2B–2C and conditional `references/security.md` Pass 2D) generate narrative-free candidates; `review.md` Pass 5A (`Cold-Start Adversarial Disprover`) applies adversarial falsification plus the five Spotlight criteria, and Pass 5B (`Cross-Model Critic`) audits surviving Critical/High findings on High-risk reviews |
+| Cheap, focused critic | Passes scaled to the Provisional and confirmed Risk Tier; `high` effort only for High risk |
 | Prioritize correctness, security, performance over nits | `SKILL.md` Core Operating Rule 7 |
 | Change Structure paragraph and goal checklist | "In plain words" and "Did it do what you asked?" output sections |
 | Streamlined path for low-drift, no-finding diffs | "No blocking issues" decision, worded as not a sign-off given the higher revert rate |
 
 Additions not from the paper:
 
-- the plain-language reader profile, which is grounded in Anthropic's study on AI assistance and coding skills (arXiv:2601.20245);
+- the systems-minded Reader Profile and non-empty System Footprint scan (`SKILL.md`, `review.md` Step 6), shifting prose from low-level code narration to operational and boundary shifts while keeping on-demand drill-down (grounded in Anthropic's study on AI assistance and coding skills, arXiv:2601.20245);
+- portable Hunt-Then-Kill specialist hunting, narrative-free Cold-Start Adversarial Disprover falsification with executable-evidence-only refutation, and optional High-risk Cross-Model Critique, grounded in Qiu & Gill (*Adversarial Review: Structured Disagreement for Grounded Agentic Code Review*, [arXiv:2608.18167](https://arxiv.org/abs/2608.18167), 2026) and Agarwal (*Refute-or-Promote: Adversarial Stage-Gated Multi-Agent Review for High-Precision LLM-Assisted Defect Discovery*, [arXiv:2604.19049](https://arxiv.org/abs/2604.19049), 2026);
+- conditional 3-phase security tracing (repository pattern discovery, comparative deviation analysis, and untrusted source-to-sink tracing) paired with explicit Hard Exclusions (`references/security.md`);
+- worktree-gated, user-approved pre-verdict execution of existing `<base>` test, lint, and type-check commands (`review.md` Step 4);
 - test and gate integrity checks, which address reward hacking and test tampering by coding agents;
-- prior-commit guarantees;
-- the pre-code plan review and contract;
-- orchestration of the Claude Code and Cursor built-in reviewers.
+- prior-commit guarantees via `git log -L` / `git blame`;
+- the pre-code plan review and `.intent-review/` contract (`references/plan.md`).
